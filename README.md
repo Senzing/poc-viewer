@@ -67,6 +67,7 @@ Its a good idea to place these settings in your .bashrc file to make sure the en
 python3 poc_viewer.py 
 ```
 The -c configuration parameter is only required if the SZ_INI_FILE_NAME environment variable is not set.
+
 The -s snapshot file parameter is for convenience if you just took a snapshot and want to load it.
 
 Next type "help" to see the available commands ...

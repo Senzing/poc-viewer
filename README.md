@@ -97,45 +97,5 @@ Syntax:
 Notes: 
     Searching by name alone may not locate a specific entity.
     Try adding a date of birth, address, or phone number if not found by name alone.
-```console
-Here is an example using poc_snapshot statistics ...
-
-```console
-(poc) load /project/audit/sg-snapshot-v110.json
-
-/project/audit/sg-snapshot-v110.json sucessfully loaded!
-
-(poc) dataSourceSummary
-
-+------------------------------------------------------------------------------------------------------------------+
-|                          Data source summary from /project/audit/sg-snapshot-v110.json                           |
-+-------------+---------+----------+-------------+------------+------------+-----------+-----------+---------------+
-| Data Source | Records | Entities | Compression | Singletons | Duplicates | Ambiguous | Possibles | Relationships |
-+-------------+---------+----------+-------------+------------+------------+-----------+-----------+---------------+
-|  SINGAPORE1 |   8378  |   8274   |    1.24%    |    8175    |     99     |     0     |    132    |      3932     |
-+-------------+---------+----------+-------------+------------+------------+-----------+-----------+---------------+
-|  SINGAPORE2 |  21826  |  21389   |     2.0%    |   21001    |    388     |     0     |    229    |      7332     |
-+-------------+---------+----------+-------------+------------+------------+-----------+-----------+---------------+
-|  SINGAPORE3 |   3609  |   3514   |    2.63%    |    3425    |     89     |     0     |     80    |      923      |
-+-------------+---------+----------+-------------+------------+------------+-----------+-----------+---------------+
-
-(poc) dataSourceSummary singapore1 duplicates
-
-DATA SOURCE SUMMARY FOR: SINGAPORE1 (DUPLICATE_SAMPLE)
-+----------------------------------------------------------------------------------------------------------------------------------------------------------+
-|                                                         Entity ID 44 - NEWTON CIRCUS FOOD CENTRE                                                         |
-+------------+-----------------------------------------------------------------------------+---------------------------------------------------------------+
-| Record ID  | Entity Data                                                                 | Additional Data                                               |
-+------------+-----------------------------------------------------------------------------+---------------------------------------------------------------+
-| SINGAPORE1 | Newton Food Centre                                                          | CUISINES: Chinese| Indian| Singaporean Malaysian| Thai| Asian |
-| 7878       | ADDRESS: BUSINESS: 500 Clemenceau Ave North, Singapore, 229495 Singapore    | GEO: 1.312003,103.839706                                      |
-|            | Singapore                                                                   |                                                               |
-|            | PHONE: 6582091828                                                           |                                                               |
-+------------+-----------------------------------------------------------------------------+---------------------------------------------------------------+
-| SINGAPORE2 | Newton Circus Food Centre                                                   | GEO: 1.312041,103.839179                                      |
-| 11265      | ADDRESS: BUSINESS: 500 Clemenceau Ave N, Singapore 229495 singapore 229495  |                                                               |
-|            | Singapore                                                                   |                                                               |
-+------------+-----------------------------------------------------------------------------+---------------------------------------------------------------+
-
-Select (P)revious, (N)ext, (R)eload, (S)crolling view, (W)hy view, (E)xport data, (Q)uit ...
 ```
+Next thing to do is to just start exploring your database!

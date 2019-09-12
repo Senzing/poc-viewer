@@ -66,9 +66,9 @@ Its a good idea to place these settings in your .bashrc file to make sure the en
 ```console
 python3 poc_viewer.py 
 ```
-The -c configuration parameter is only required if the SZ_INI_FILE_NAME environment variable is not set.
-
-The -s snapshot file parameter is for convenience if you just took a snapshot and want to load it.
+Optional parameters ...
+- The -c configuration parameter is only required if the SZ_INI_FILE_NAME environment variable is not set.
+- The -s snapshot file parameter is for convenience if you just took a snapshot and want to load it. If you forget this, you can use the load command while in the viewer itself.   The viewer also remembers the last file loaded, so its not required every time.
 
 Next type "help" to see the available commands ...
 ```console
@@ -114,7 +114,7 @@ Next thing to do is to just start exploring your database!  Here are a few tips 
 - Use "scroll" immediately after any table that is cut off as screen wrapping has been turned off. This will allow you to see the entire table and pan left and right, up and down.
 
 **browsing statistics and examples ...**
-1. load /project/snapshots/snapshot1.json *(where snapshot1 is a file created by poc_snapshot.py)*
+1. load /project/snapshots/snapshot1.json *(where snapshot1.json is a file created by poc_snapshot.py)*
 2. dataSourceSummary *(when a list of the data sources and their statistics are desired)* 
 3. dataSourceSummary customer duplicates *(to view a list of duplicate records in the customer data source)*
 4. Select (N)ext or (P)revious to move through the examples.

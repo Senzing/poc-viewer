@@ -99,14 +99,16 @@ Notes:
     Searching by name alone may not locate a specific entity.
     Try adding a date of birth, address, or phone number if not found by name alone.
 ```
-Next thing to do is to just start exploring your database!  Here are a few tips ...
-- Support flow ...
-    1. search joe smith *(where "joe smith" is the name of an entity you want to lookup)*
-    2. get 123 *(where 123 is one of the entity_ids returned by the search)*
-    3. why 123 *(if entity 123 consists of multiple records)*
-    4. compare 123,145 *(where 123 and 145 are two entity_ids you want to compare)*
-    5. why 123,145 *(where 123 and 145 are two entity_ids you want to compare)*
 
-    *Note: be sure to type "help why" to understand to colors and symbols a why report shows.*
+Next thing to do is to just start exploring your database!  Here are a few tips ...
+
+**adhoc flow ...**
+1. search joe smith *(where "joe smith" is the name of an entity you want to lookup)*
+2. get 123 *(where 123 is one of the entity_ids returned by the search)*
+3. why 123 *(if entity 123 consists of multiple records)*
+4. compare 123,145 *(where 123 and 145 are two entity_ids you want to compare)*
+5. why 123,145 *(where 123 and 145 are two entity_ids you want to compare)*
+
+*Note: be sure to type "help why" to understand to colors and symbols a why report shows.*
 
 

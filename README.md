@@ -6,7 +6,7 @@ The [poc_viewer.py](poc_viewer.py) is an interactive command line utility that w
 
 The poc-snapshot utility https://github.com/Senzing/poc-snapshot computes the following reports ...
 - **dataSourceSummary** This report shows the matches, possible matches and relationships within each data source.
-- **crossSourceSummary** This report shows the matches, possible matches and relationships across two different data sources.
+- **crossSourceSummary** This report shows the matches, possible matches and relationships across data sources.
 - **entitySizeBreakdown** This report categorizes entities by their size (how many records they contain) and selects a list of entities to review that may be over-matched due to multiple names, addresses, DOBs, etc. 
 
 The poc-viewer can also be used by support personnel at any time to perform the following tasks ...

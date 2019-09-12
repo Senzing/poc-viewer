@@ -65,15 +65,17 @@ Its a good idea to place these settings in your .bashrc file to make sure the en
 ### Typical use
 ```console
 python3 poc_viewer.py 
+
+Welcome to the Senzing Proof of Concept (POC) viewer. Type help or ? to list commands.
+
+(poc)
 ```
 Optional parameters ...
 - The -c configuration parameter is only required if the SZ_INI_FILE_NAME environment variable is not set.
-- The -s snapshot file parameter is for convenience if you just took a snapshot and want to load it. If you forget this, you can use the load command while in the viewer itself.   The viewer also remembers the last file loaded, so its not required every time.
+- The -s snapshot file parameter is for convenience if you just took a snapshot and want to load it. If you forget this, you can use the load command while in the viewer itself.  The viewer also remembers the last file loaded, so its not required every time.
 
 Next type "help" to see the available commands ...
 ```console
-Welcome to the Senzing Proof of Concept (POC) viewer. Type help or ? to list commands.
-
 (poc) help
 
 Documented commands (type help <topic>):
@@ -105,12 +107,12 @@ Next thing to do is to just start exploring your database!  Here are a few tips 
 **adhoc flow ...**
 1. search joe smith *(where "joe smith" is the name of an entity you want to lookup)*
 2. get 123 *(where 123 is one of the entity_ids returned by the search)*
-3. why 123 *(if entity 123 consists of multiple records)*
+3. why 123 *(if entity 123 consists of multiple records and you want to know why they resolved)*
 4. compare 123,145 *(where 123 and 145 are two entity_ids you want to compare)*
 5. why 123,145 *(where 123 and 145 are two entity_ids you want to see why they did not resolve)*
 
 *Notes:* 
-- Be sure to type "help why" to understand to colors and symbols a why report shows.
+- Be sure to type "help why" to understand what the colors and symbols mean.
 - Use "scroll" immediately after any table that is cut off as screen wrapping has been turned off. This will allow you to see the entire table and pan left and right, up and down.
 
 **browsing statistics and examples ...**

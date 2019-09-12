@@ -2,7 +2,7 @@
 
 ## Overview
 
-The [poc_viewer.py](poc_viewer.py) is an interactive command line utility that works along with the poc-snapshot utility to display interesting statistics and examples of the entities in an Senzing repository at stategic times, such as after an initial load, a configuration change, a system upgrade, etc.
+The [poc_viewer.py](poc_viewer.py) utility is an interactive command line utility that works along with the poc-snapshot utility to display interesting statistics and examples of the entities in an Senzing repository at stategic times, such as after an initial load, a configuration change, a system upgrade, etc.
 
 The poc-snapshot utility https://github.com/Senzing/poc-snapshot computes the following reports ...
 - **dataSourceSummary** This report shows the matches, possible matches and relationships within each data source.

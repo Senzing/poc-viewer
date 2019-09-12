@@ -2407,7 +2407,8 @@ class G2CmdShell(cmd.Cmd):
 
     # -----------------------------
     def do_scroll(self,arg):
-        '\nallows scrolling of the last table rendered. Some of these tables can get really wide and screen wrapping has been turned off'
+        '\nLoads the last table rendered into the linux less viewer where you can use the arrow keys to scroll ' \
+        '\n up and down, left and right, until you type Q to quit.\n'
         if os.path.exists(self.lastTableName):
             os.system('less -SR %s' % self.lastTableName)
 

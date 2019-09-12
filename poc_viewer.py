@@ -2407,6 +2407,7 @@ class G2CmdShell(cmd.Cmd):
 
     # -----------------------------
     def do_scroll(self,arg):
+        '\nallows scrolling of the last table rendered. Some of these tables can get really wide and screen wrapping has been turned off'
         if os.path.exists(self.lastTableName):
             os.system('less -SR %s' % self.lastTableName)
 

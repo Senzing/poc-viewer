@@ -78,9 +78,9 @@ Welcome to the Senzing Proof of Concept (POC) viewer. Type help or ? to list com
 
 Documented commands (type help <topic>):
 ========================================
-auditSummary  crossSourceSummary   export  load    why
-colorScheme   dataSourceSummary    get     score 
-compare       entitySizeBreakdown  help    search
+auditSummary  crossSourceSummary   export  load    search
+colorScheme   dataSourceSummary    get     score   why   
+compare       entitySizeBreakdown  help    scroll
 ```
 Type "help" on a specific command to find out how to use it ...
 ```console
@@ -107,8 +107,19 @@ Next thing to do is to just start exploring your database!  Here are a few tips 
 2. get 123 *(where 123 is one of the entity_ids returned by the search)*
 3. why 123 *(if entity 123 consists of multiple records)*
 4. compare 123,145 *(where 123 and 145 are two entity_ids you want to compare)*
-5. why 123,145 *(where 123 and 145 are two entity_ids you want to compare)*
+5. why 123,145 *(where 123 and 145 are two entity_ids you want to see why they did not resolve)*
 
-*Note: be sure to type "help why" to understand to colors and symbols a why report shows.*
+*Notes:* 
+- Be sure to type "help why" to understand to colors and symbols a why report shows.
+- Use "scroll" immediately after any table that is cut off as screen wrapping has been turned off. This will allow you to see the entire table and pan left and right, up and down.
 
+**browsing statistics and examples ...**
+1. load /project/snapshots/snapshot1.json *(where snapshot1 is a file created by poc_snapshot.py)*
+2. dataSourceSummary *(when a list of the data sources and their statistics are desired)* 
+3. dataSourceSummary customer duplicates *(to view a list of duplicate records in the customer data source)*
+4. Select (N)ext or (P)revious to move through the examples.
+5. Select (W)hy on any example you want more explanation for.
+6. Select (S)croll on any table that is cut off as screen wrapping has been turned off.
+7. Select (Q)uit to get out of the report.
 
+Final note: the auditSummary report is not publicly available. It provides a way to compare snapshots between runs. Please contact support if you desire this functionality. 

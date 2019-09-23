@@ -32,9 +32,6 @@ except: hasFuzzy = False
 else: hasFuzzy = True
 
 #--senzing python classes
-g2pythonPath = '/opt/senzing/g2/python'
-if not os.getenv('PYTHONPATH') and os.path.exists(g2pythonPath):
-    sys.path.insert(1, g2pythonPath)
 try: 
     from G2Database import G2Database
     from G2Engine import G2Engine
@@ -2631,7 +2628,7 @@ if __name__ == '__main__':
     appPath = os.path.dirname(os.path.abspath(sys.argv[0]))
 
     #--defaults
-    iniFileName = int(os.getenv('SZ_INI_FILE_NAME')) if os.getenv('SZ_INI_FILE_NAME', None) else '/opt/senzing/g2/python/G2Module.ini'
+    iniFileName = os.getenv('SZ_INI_FILE_NAME') if os.getenv('SZ_INI_FILE_NAME', None) else appPath + os.path.sep + 'G2Module.ini'
 
     #--capture the command line arguments
     argParser = argparse.ArgumentParser()

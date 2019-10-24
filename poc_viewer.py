@@ -2077,13 +2077,33 @@ class G2CmdShell(cmd.Cmd):
         cursor = g2Dbo.sqlExec(feat_sql, list(set(entityList)))
         rowData = g2Dbo.fetchNext(cursor)
         while rowData:
-            if not rowData['FEAT_DESC']: #--ambiguous has no feat_desc
-                if rowData['FTYPE_ID'] == self.ambiguousFtypeID: #--first element is the ftype that mad it ambiguous
-                    try: triggeringFtypeCode = self.ftypeLookup[int(rowData['FELEM_VALUES'].split('|')[0].split(':')[1])]['FTYPE_CODE']
-                    except: pass
-                    else: rowData['FEAT_DESC'] = 'comflicting %ss' % triggeringFtypeCode
-                if not rowData['FEAT_DESC']: #--if still not set
-                    rowData['FEAT_DESC'] = rowData['FELEM_VALUES']
+            if rowData['FTYPE_ID'] == self.ambiguousFtypeID:
+
+                #--find the ambiguous type and feature (if any)
+                ambiguousCategory = 'Conflicting exclusive'
+                ambiguousFtypeID = 0
+                felemList = rowData['FELEM_VALUES'].split('|')
+                for felemString in felemList:
+                    felemDict = felemString.split(':')
+                    if felemDict[0] == '110':
+                        ambiguousFtypeID = int(felemDict[1])
+                    elif felemDict[0] == '115':
+                        if felemDict[1] == '1':
+                            ambiguousCategory = 'Conflicting exclusive'
+                        elif felemDict[1] == '2':
+                            ambiguousCategory = 'Suppressed feature'
+                        elif felemDict[1] == '3':
+                            ambiguousCategory = 'Absent Feature'
+
+                #--add the ambiguous ftype code (if one)
+                rowData['FEAT_DESC'] = ambiguousCategory
+                if ambiguousFtypeID != 0:
+                    rowData['FEAT_DESC'] += (': ' + self.ftypeLookup[ambiguousFtypeID]['FTYPE_CODE'])
+
+            #--if no featDesc, use the felem values
+            if not rowData['FEAT_DESC']: #--if still not set
+                rowData['FEAT_DESC'] = rowData['FELEM_VALUES']
+
             if rowData['FTYPE_ID'] not in ftypeList:
                 ftypeList[rowData['FTYPE_ID']] = {}
             if rowData['RES_ENT_ID'] not in ftypeList[rowData['FTYPE_ID']]:

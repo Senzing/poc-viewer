@@ -42,6 +42,12 @@ except:
     print('')
     sys.exit(1)
 
+#--see if a g2 config manager present - v1.12+
+try: 
+    from G2IniParams import G2IniParams
+    from G2ConfigMgr import G2ConfigMgr
+except: G2ConfigMgr = None
+
 # ==============================
 class colors: 
     code = {}
@@ -2660,27 +2666,57 @@ if __name__ == '__main__':
         print('')
         sys.exit(1)
 
+    #--use config file if in the ini file, otherwise expect to get from database with config manager lib
     try: configTableFile = iniParser.get('SQL', 'G2CONFIGFILE')
-    except: 
+    except: configTableFile = None
+    if not configTableFile and not G2ConfigMgr:
         print('')
-        print('G2CONFIGFILE parameter not found in [SQL] section of the ini file')
+        print('Config information missing from ini file and no config manager present!')
         print('')
         sys.exit(1)
 
-    #--get the config
-    try: cfgData = json.load(open(configTableFile), encoding="utf-8")
-    except ValueError as e:
-        print('')
-        print('G2CONFIGFILE: %s has invalid json' % configTableFile)
-        print(e)
-        print('')
-        sys.exit(1)
-    except IOError as e:
-        print('')
-        print('G2CONFIGFILE: %s was not found' % configTableFile)
-        print(e)
-        print('')
-        sys.exit(1)
+    #--get the config from the file
+    if configTableFile:
+        try: cfgData = json.load(open(configTableFile), encoding="utf-8")
+        except ValueError as e:
+            print('')
+            print('G2CONFIGFILE: %s has invalid json' % configTableFile)
+            print(e)
+            print('')
+            sys.exit(1)
+        except IOError as e:
+            print('')
+            print('G2CONFIGFILE: %s was not found' % configTableFile)
+            print(e)
+            print('')
+            sys.exit(1)
+
+    #--get the config from the config manager
+    else:
+        iniParamCreator = G2IniParams()
+        iniParams = iniParamCreator.getJsonINIParams(iniFileName)
+        try: 
+            g2ConfigMgr = G2ConfigMgr()
+            g2ConfigMgr.initV2('pyG2ConfigMgr', iniParams, False)
+            defaultConfigID = bytearray() 
+            g2ConfigMgr.getDefaultConfigID(defaultConfigID)
+            if len(defaultConfigID) == 0:
+                print('')
+                print('No default config stored in database. (see https://senzing.zendesk.com/hc/en-us/articles/360036587313)')
+                print('')
+                sys.exit(1)
+            defaultConfigDoc = bytearray() 
+            g2ConfigMgr.getConfig(defaultConfigID, defaultConfigDoc)
+            if len(defaultConfigDoc) == 0:
+                print('')
+                print('No default config stored in database. (see https://senzing.zendesk.com/hc/en-us/articles/360036587313)')
+                print('')
+                sys.exit(1)
+            cfgData = json.loads(defaultConfigDoc.decode())
+            g2ConfigMgr.destroy()
+        except:
+            #--error already printed by the api wrapper
+            sys.exit(1)
 
     #--try to open the database
     g2Dbo = G2Database(g2dbUri)
@@ -2693,7 +2729,12 @@ if __name__ == '__main__':
     #--try initialize and prime the g2engine
     try:
         g2Engine = G2Engine()
-        g2Engine.init('poc_viewer', iniFileName, False)
+        if configTableFile:
+            g2Engine.init('poc_viewer', iniFileName, False)
+        else:
+            iniParamCreator = G2IniParams()
+            iniParams = iniParamCreator.getJsonINIParams(iniFileName)
+            g2Engine.initV2('poc_viewer', iniParams, False)
     except G2Exception as err:
         print('')
         print('Could not initialize the G2 Engine')

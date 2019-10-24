@@ -34,8 +34,13 @@ else: hasFuzzy = True
 #--senzing python classes
 try: 
     from G2Database import G2Database
-    from G2Engine import G2Engine
     from G2Exception import G2Exception
+    try: 
+        from G2Module import G2Module
+        oldG2Module = True
+    except: 
+        from G2Engine import G2Engine
+        oldG2Module = False
 except:
     print('')
     print('Please export PYTHONPATH=<path to senzing python directory>')
@@ -1361,9 +1366,12 @@ class G2CmdShell(cmd.Cmd):
             print('')
             print('Searching ...')
             try: 
-                response = bytearray()
-                retcode = g2Engine.searchByAttributes(json.dumps(parmData), response)
-                response = response.decode() if response else ''
+                if oldG2Module:
+                    response = g2Engine.searchByAttributes(json.dumps(parmData))
+                else:
+                    response = bytearray()
+                    retcode = g2Engine.searchByAttributes(json.dumps(parmData), response)
+                    response = response.decode() if response else ''
             except G2Exception as err:
                 print(str(err))
             else:
@@ -1480,18 +1488,24 @@ class G2CmdShell(cmd.Cmd):
 
         if len(arg.split()) == 1:
             try: 
-                response = bytearray()
-                retcode = g2Engine.getEntityByEntityID(int(arg), response)
-                response = response.decode() if response else ''
+                if oldG2Module:
+                    response = g2Engine.getEntityByEntityID(int(arg))
+                else:
+                    response = bytearray()
+                    retcode = g2Engine.getEntityByEntityID(int(arg), response)
+                    response = response.decode() if response else ''
             except G2Exception as err:
                 printWithNewLines(str(err), 'B')
                 return -1 if calledDirect else 0
 
         elif len(arg.split()) == 2:
             try: 
-                response = bytearray()
-                retcode = g2Engine.getEntityByRecordID(arg.split()[0], arg.split()[1], response)
-                response = response.decode() if response else ''
+                if oldG2Module:
+                    response = g2Engine.getEntityByRecordID(arg.split()[0], arg.split()[1])
+                else:
+                    response = bytearray()
+                    retcode = g2Engine.getEntityByRecordID(arg.split()[0], arg.split()[1], response)
+                    response = response.decode() if response else ''
             except G2Exception as err:
                 printWithNewLines(str(err), 'B')
                 return -1 if calledDirect else 0
@@ -1718,9 +1732,12 @@ class G2CmdShell(cmd.Cmd):
         compareList = []
         for entityId in entityList:
             try:
-                response = bytearray()
-                retcode = g2Engine.getEntityByEntityID(int(entityId), response)
-                response = response.decode() if response else ''
+                if oldG2Module: 
+                    response = g2Engine.getEntityByEntityID(int(entityId))
+                else:
+                    response = bytearray()
+                    retcode = g2Engine.getEntityByEntityID(int(entityId), response)
+                    response = response.decode() if response else ''
             except G2Exception as err:
                 printWithNewLines(str(err), 'B')
                 return -1 if calledDirect else 0
@@ -2299,9 +2316,12 @@ class G2CmdShell(cmd.Cmd):
 
         #--search it up and display the scores
         try: 
-            response = bytearray()
-            retcode = g2Engine.searchByAttributes(searchRecordStr, response)
-            response = response.decode() if response else ''
+            if oldG2Module:
+                response = g2Engine.searchByAttributes(searchRecordStr)
+            else:
+                response = bytearray()
+                retcode = g2Engine.searchByAttributes(searchRecordStr, response)
+                response = response.decode() if response else ''
         except G2Exception as err:
             print(str(err))
             return
@@ -2463,9 +2483,12 @@ class G2CmdShell(cmd.Cmd):
         recordCount = 0
         for entityId in entityList:
             try:
-                response = bytearray()
-                retcode = g2Engine.getEntityByEntityID(int(entityId), response)
-                response = response.decode() if response else ''
+                if oldG2Module:
+                    response = g2Engine.getEntityByEntityID(int(entityId))
+                else:
+                    response = bytearray()
+                    retcode = g2Engine.getEntityByEntityID(int(entityId), response)
+                    response = response.decode() if response else ''
             except G2Exception as err:
                 print(str(err))
             else:
@@ -2728,13 +2751,17 @@ if __name__ == '__main__':
 
     #--try initialize and prime the g2engine
     try:
-        g2Engine = G2Engine()
-        if configTableFile:
-            g2Engine.init('poc_viewer', iniFileName, False)
+        if oldG2Module: 
+            g2Engine = G2Module('poc_viewer', iniFileName, False)
+            g2Engine.init()
         else:
-            iniParamCreator = G2IniParams()
-            iniParams = iniParamCreator.getJsonINIParams(iniFileName)
-            g2Engine.initV2('poc_viewer', iniParams, False)
+            g2Engine = G2Engine()
+            if configTableFile:
+                g2Engine.init('poc_viewer', iniFileName, False)
+            else:
+                iniParamCreator = G2IniParams()
+                iniParams = iniParamCreator.getJsonINIParams(iniFileName)
+                g2Engine.initV2('poc_viewer', iniParams, False)
     except G2Exception as err:
         print('')
         print('Could not initialize the G2 Engine')

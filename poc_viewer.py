@@ -2677,7 +2677,7 @@ if __name__ == '__main__':
     appPath = os.path.dirname(os.path.abspath(sys.argv[0]))
 
     #--defaults
-    iniFileName = os.getenv('SZ_INI_FILE_NAME') if os.getenv('SZ_INI_FILE_NAME', None) else appPath + os.path.sep + 'G2Module.ini'
+    iniFileName = os.getenv('SENZING_INI_FILE_NAME') if os.getenv('SENZING_INI_FILE_NAME', None) else appPath + os.path.sep + 'G2Module.ini'
 
     #--capture the command line arguments
     argParser = argparse.ArgumentParser()
@@ -2697,7 +2697,7 @@ if __name__ == '__main__':
     #--get parameters from ini file
     if not os.path.exists(iniFileName):
         print('')
-        print('ini file %s not found!' % iniFileName)
+        print('An ini file was not found, please supply with the -c parameter.')
         print('')
         sys.exit(1)
     iniParser = configparser.ConfigParser()

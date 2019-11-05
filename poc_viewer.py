@@ -34,13 +34,24 @@ else: hasFuzzy = True
 #--senzing python classes
 try: 
     from G2Database import G2Database
-    from G2Engine import G2Engine
     from G2Exception import G2Exception
+    try: 
+        from G2Module import G2Module
+        oldG2Module = True
+    except: 
+        from G2Engine import G2Engine
+        oldG2Module = False
 except:
     print('')
     print('Please export PYTHONPATH=<path to senzing python directory>')
     print('')
     sys.exit(1)
+
+#--see if a g2 config manager present - v1.12+
+try: 
+    from G2IniParams import G2IniParams
+    from G2ConfigMgr import G2ConfigMgr
+except: G2ConfigMgr = None
 
 # ==============================
 class colors: 
@@ -1355,9 +1366,12 @@ class G2CmdShell(cmd.Cmd):
             print('')
             print('Searching ...')
             try: 
-                response = bytearray()
-                retcode = g2Engine.searchByAttributes(json.dumps(parmData), response)
-                response = response.decode() if response else ''
+                if oldG2Module:
+                    response = g2Engine.searchByAttributes(json.dumps(parmData))
+                else:
+                    response = bytearray()
+                    retcode = g2Engine.searchByAttributes(json.dumps(parmData), response)
+                    response = response.decode() if response else ''
             except G2Exception as err:
                 print(str(err))
             else:
@@ -1474,18 +1488,24 @@ class G2CmdShell(cmd.Cmd):
 
         if len(arg.split()) == 1:
             try: 
-                response = bytearray()
-                retcode = g2Engine.getEntityByEntityID(int(arg), response)
-                response = response.decode() if response else ''
+                if oldG2Module:
+                    response = g2Engine.getEntityByEntityID(int(arg))
+                else:
+                    response = bytearray()
+                    retcode = g2Engine.getEntityByEntityID(int(arg), response)
+                    response = response.decode() if response else ''
             except G2Exception as err:
                 printWithNewLines(str(err), 'B')
                 return -1 if calledDirect else 0
 
         elif len(arg.split()) == 2:
             try: 
-                response = bytearray()
-                retcode = g2Engine.getEntityByRecordID(arg.split()[0], arg.split()[1], response)
-                response = response.decode() if response else ''
+                if oldG2Module:
+                    response = g2Engine.getEntityByRecordID(arg.split()[0], arg.split()[1])
+                else:
+                    response = bytearray()
+                    retcode = g2Engine.getEntityByRecordID(arg.split()[0], arg.split()[1], response)
+                    response = response.decode() if response else ''
             except G2Exception as err:
                 printWithNewLines(str(err), 'B')
                 return -1 if calledDirect else 0
@@ -1712,9 +1732,12 @@ class G2CmdShell(cmd.Cmd):
         compareList = []
         for entityId in entityList:
             try:
-                response = bytearray()
-                retcode = g2Engine.getEntityByEntityID(int(entityId), response)
-                response = response.decode() if response else ''
+                if oldG2Module: 
+                    response = g2Engine.getEntityByEntityID(int(entityId))
+                else:
+                    response = bytearray()
+                    retcode = g2Engine.getEntityByEntityID(int(entityId), response)
+                    response = response.decode() if response else ''
             except G2Exception as err:
                 printWithNewLines(str(err), 'B')
                 return -1 if calledDirect else 0
@@ -2054,13 +2077,33 @@ class G2CmdShell(cmd.Cmd):
         cursor = g2Dbo.sqlExec(feat_sql, list(set(entityList)))
         rowData = g2Dbo.fetchNext(cursor)
         while rowData:
-            if not rowData['FEAT_DESC']: #--ambiguous has no feat_desc
-                if rowData['FTYPE_ID'] == self.ambiguousFtypeID: #--first element is the ftype that mad it ambiguous
-                    try: triggeringFtypeCode = self.ftypeLookup[int(rowData['FELEM_VALUES'].split('|')[0].split(':')[1])]['FTYPE_CODE']
-                    except: pass
-                    else: rowData['FEAT_DESC'] = 'comflicting %ss' % triggeringFtypeCode
-                if not rowData['FEAT_DESC']: #--if still not set
-                    rowData['FEAT_DESC'] = rowData['FELEM_VALUES']
+            if rowData['FTYPE_ID'] == self.ambiguousFtypeID:
+
+                #--find the ambiguous type and feature (if any)
+                ambiguousCategory = 'Conflicting exclusive'
+                ambiguousFtypeID = 0
+                felemList = rowData['FELEM_VALUES'].split('|')
+                for felemString in felemList:
+                    felemDict = felemString.split(':')
+                    if felemDict[0] == '110':
+                        ambiguousFtypeID = int(felemDict[1])
+                    elif felemDict[0] == '115':
+                        if felemDict[1] == '1':
+                            ambiguousCategory = 'Conflicting exclusive'
+                        elif felemDict[1] == '2':
+                            ambiguousCategory = 'Suppressed feature'
+                        elif felemDict[1] == '3':
+                            ambiguousCategory = 'Absent Feature'
+
+                #--add the ambiguous ftype code (if one)
+                rowData['FEAT_DESC'] = ambiguousCategory
+                if ambiguousFtypeID != 0:
+                    rowData['FEAT_DESC'] += (': ' + self.ftypeLookup[ambiguousFtypeID]['FTYPE_CODE'])
+
+            #--if no featDesc, use the felem values
+            if not rowData['FEAT_DESC']: #--if still not set
+                rowData['FEAT_DESC'] = rowData['FELEM_VALUES']
+
             if rowData['FTYPE_ID'] not in ftypeList:
                 ftypeList[rowData['FTYPE_ID']] = {}
             if rowData['RES_ENT_ID'] not in ftypeList[rowData['FTYPE_ID']]:
@@ -2293,9 +2336,12 @@ class G2CmdShell(cmd.Cmd):
 
         #--search it up and display the scores
         try: 
-            response = bytearray()
-            retcode = g2Engine.searchByAttributes(searchRecordStr, response)
-            response = response.decode() if response else ''
+            if oldG2Module:
+                response = g2Engine.searchByAttributes(searchRecordStr)
+            else:
+                response = bytearray()
+                retcode = g2Engine.searchByAttributes(searchRecordStr, response)
+                response = response.decode() if response else ''
         except G2Exception as err:
             print(str(err))
             return
@@ -2457,9 +2503,12 @@ class G2CmdShell(cmd.Cmd):
         recordCount = 0
         for entityId in entityList:
             try:
-                response = bytearray()
-                retcode = g2Engine.getEntityByEntityID(int(entityId), response)
-                response = response.decode() if response else ''
+                if oldG2Module:
+                    response = g2Engine.getEntityByEntityID(int(entityId))
+                else:
+                    response = bytearray()
+                    retcode = g2Engine.getEntityByEntityID(int(entityId), response)
+                    response = response.decode() if response else ''
             except G2Exception as err:
                 print(str(err))
             else:
@@ -2628,7 +2677,7 @@ if __name__ == '__main__':
     appPath = os.path.dirname(os.path.abspath(sys.argv[0]))
 
     #--defaults
-    iniFileName = os.getenv('SZ_INI_FILE_NAME') if os.getenv('SZ_INI_FILE_NAME', None) else appPath + os.path.sep + 'G2Module.ini'
+    iniFileName = os.getenv('SENZING_INI_FILE_NAME') if os.getenv('SENZING_INI_FILE_NAME', None) else appPath + os.path.sep + 'G2Module.ini'
 
     #--capture the command line arguments
     argParser = argparse.ArgumentParser()
@@ -2648,7 +2697,7 @@ if __name__ == '__main__':
     #--get parameters from ini file
     if not os.path.exists(iniFileName):
         print('')
-        print('ini file %s not found!' % iniFileName)
+        print('An ini file was not found, please supply with the -c parameter.')
         print('')
         sys.exit(1)
     iniParser = configparser.ConfigParser()
@@ -2660,27 +2709,57 @@ if __name__ == '__main__':
         print('')
         sys.exit(1)
 
+    #--use config file if in the ini file, otherwise expect to get from database with config manager lib
     try: configTableFile = iniParser.get('SQL', 'G2CONFIGFILE')
-    except: 
+    except: configTableFile = None
+    if not configTableFile and not G2ConfigMgr:
         print('')
-        print('G2CONFIGFILE parameter not found in [SQL] section of the ini file')
+        print('Config information missing from ini file and no config manager present!')
         print('')
         sys.exit(1)
 
-    #--get the config
-    try: cfgData = json.load(open(configTableFile), encoding="utf-8")
-    except ValueError as e:
-        print('')
-        print('G2CONFIGFILE: %s has invalid json' % configTableFile)
-        print(e)
-        print('')
-        sys.exit(1)
-    except IOError as e:
-        print('')
-        print('G2CONFIGFILE: %s was not found' % configTableFile)
-        print(e)
-        print('')
-        sys.exit(1)
+    #--get the config from the file
+    if configTableFile:
+        try: cfgData = json.load(open(configTableFile), encoding="utf-8")
+        except ValueError as e:
+            print('')
+            print('G2CONFIGFILE: %s has invalid json' % configTableFile)
+            print(e)
+            print('')
+            sys.exit(1)
+        except IOError as e:
+            print('')
+            print('G2CONFIGFILE: %s was not found' % configTableFile)
+            print(e)
+            print('')
+            sys.exit(1)
+
+    #--get the config from the config manager
+    else:
+        iniParamCreator = G2IniParams()
+        iniParams = iniParamCreator.getJsonINIParams(iniFileName)
+        try: 
+            g2ConfigMgr = G2ConfigMgr()
+            g2ConfigMgr.initV2('pyG2ConfigMgr', iniParams, False)
+            defaultConfigID = bytearray() 
+            g2ConfigMgr.getDefaultConfigID(defaultConfigID)
+            if len(defaultConfigID) == 0:
+                print('')
+                print('No default config stored in database. (see https://senzing.zendesk.com/hc/en-us/articles/360036587313)')
+                print('')
+                sys.exit(1)
+            defaultConfigDoc = bytearray() 
+            g2ConfigMgr.getConfig(defaultConfigID, defaultConfigDoc)
+            if len(defaultConfigDoc) == 0:
+                print('')
+                print('No default config stored in database. (see https://senzing.zendesk.com/hc/en-us/articles/360036587313)')
+                print('')
+                sys.exit(1)
+            cfgData = json.loads(defaultConfigDoc.decode())
+            g2ConfigMgr.destroy()
+        except:
+            #--error already printed by the api wrapper
+            sys.exit(1)
 
     #--try to open the database
     g2Dbo = G2Database(g2dbUri)
@@ -2692,8 +2771,17 @@ if __name__ == '__main__':
 
     #--try initialize and prime the g2engine
     try:
-        g2Engine = G2Engine()
-        g2Engine.init('poc_viewer', iniFileName, False)
+        if oldG2Module: 
+            g2Engine = G2Module('poc_viewer', iniFileName, False)
+            g2Engine.init()
+        else:
+            g2Engine = G2Engine()
+            if configTableFile:
+                g2Engine.init('poc_viewer', iniFileName, False)
+            else:
+                iniParamCreator = G2IniParams()
+                iniParams = iniParamCreator.getJsonINIParams(iniFileName)
+                g2Engine.initV2('poc_viewer', iniParams, False)
     except G2Exception as err:
         print('')
         print('Could not initialize the G2 Engine')

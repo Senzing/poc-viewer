@@ -1,5 +1,5 @@
 #! /usr/bin/env python3
-pocUtilsVersion = 2.2
+pocUtilsVersion = 2.2.1
     
 import argparse
 try: import configparser

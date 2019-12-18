@@ -1,19 +1,20 @@
 #! /usr/bin/env python3
-pocUtilsVersion = 2.2.1
+pocUtilsVersion = '2.2.1'
     
 import argparse
-try: import configparser
-except: import ConfigParser as configparser
-import sys
+import cmd
+import glob
 import json
 import os
 import platform
-from collections import OrderedDict
-import traceback
-import glob
 import subprocess
+import sys
+import traceback
+from collections import OrderedDict
 
-import cmd
+try: import configparser
+except: import ConfigParser as configparser
+
 try:
     import readline
     import atexit
@@ -280,7 +281,8 @@ class G2CmdShell(cmd.Cmd):
         self.currentReviewList = None
 
         #--get settings
-        settingsFileName = '.' + sys.argv[0].lower().replace('.py','') + '_settings'
+        settingsFileName = '.' + os.path.basename(sys.argv[0].lower().replace('.py','')) + '_settings'
+
         self.settingsFileName = os.path.join(os.path.expanduser("~"), settingsFileName)
         try: self.settingsFileData = json.load(open(self.settingsFileName))
         except: self.settingsFileData = {}
@@ -339,7 +341,7 @@ class G2CmdShell(cmd.Cmd):
 
         if readline:
             global histfile
-            histFileName = '.' + sys.argv[0].lower().replace('.py','') + '_history'
+            histFileName = '.' + os.path.basename(sys.argv[0].lower().replace('.py','')) + '_history'
             histfile = os.path.join(os.path.expanduser("~"), histFileName)
             if not os.path.isfile(histfile):
                 open(histfile, 'a').close()

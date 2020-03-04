@@ -35,12 +35,8 @@ else: hasFuzzy = True
 try: 
     from G2Database import G2Database
     from G2Exception import G2Exception
-    try: 
-        from G2Module import G2Module
-        oldG2Module = True
-    except: 
-        from G2Engine import G2Engine
-        oldG2Module = False
+    from G2Engine import G2Engine
+    oldG2Module = False
 except:
     print('')
     print('Please export PYTHONPATH=<path to senzing python directory>')

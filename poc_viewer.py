@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
-pocUtilsVersion = 2.2.1
-    
+pocUtilsVersion = '2.3.0'
+
 import argparse
 try: import configparser
 except: import ConfigParser as configparser
@@ -12,7 +12,7 @@ from collections import OrderedDict
 import traceback
 import glob
 import subprocess
-
+import re
 import cmd
 try:
     import readline
@@ -211,12 +211,12 @@ class G2CmdShell(cmd.Cmd):
 
     def __init__(self):
         cmd.Cmd.__init__(self)
-
+        readline.set_completer_delims(' ')
         # this is how you get command history on windows 
         if platform.system() == 'Windows':
             self.use_rawinput = False
 
-        self.intro = '\nWelcome to the Senzing Proof of Concept (POC) viewer. Type help or ? to list commands.\n'
+        self.intro = '\nWelcome to the Senzing POC Viewer (v%s). Type help or ? to list commands.\n' % pocUtilsVersion
         self.prompt = '(poc) '
 
         #--store config dicts for fast lookup
@@ -244,6 +244,10 @@ class G2CmdShell(cmd.Cmd):
         for cfgRecord in self.cfgData['G2_CONFIG']['CFG_CFUNC']:
             self.cfuncLookup[cfgRecord['CFUNC_ID']] = cfgRecord 
 
+        self.cfrtnLookup = {}
+        for cfgRecord in self.cfgData['G2_CONFIG']['CFG_CFRTN']:
+            self.cfrtnLookup[cfgRecord['CFUNC_ID']] = cfgRecord 
+
         self.scoredFtypeCodes = {}
         for cfgRecord in self.cfgData['G2_CONFIG']['CFG_CFCALL']:
             cfgRecord['FTYPE_CODE'] = self.ftypeLookup[cfgRecord['FTYPE_ID']]['FTYPE_CODE']
@@ -251,6 +255,21 @@ class G2CmdShell(cmd.Cmd):
             self.scoredFtypeCodes[cfgRecord['FTYPE_CODE']] = cfgRecord 
 
         self.ambiguousFtypeID = self.ftypeCodeLookup['AMBIGUOUS_ENTITY']['FTYPE_ID']
+
+        #--set feature display sequence
+        self.featureSequence = {}
+        self.featureSequence[self.ambiguousFtypeID] = 1 #--ambiguous is first
+        featureSequence = 2 
+        #--scored features second        
+        for cfgRecord in sorted(self.cfgData['G2_CONFIG']['CFG_CFCALL'], key=lambda k: k['FTYPE_ID']):
+            if cfgRecord['FTYPE_ID'] not in self.featureSequence:
+                self.featureSequence[cfgRecord['FTYPE_ID']] = featureSequence
+                featureSequence += 1
+        #--then the rest
+        for cfgRecord in sorted(self.cfgData['G2_CONFIG']['CFG_FTYPE'], key=lambda k: k['FTYPE_ID']):
+            if cfgRecord['FTYPE_ID'] not in self.featureSequence:
+                self.featureSequence[cfgRecord['FTYPE_ID']] = featureSequence
+                featureSequence += 1
 
         #--misc
         self.sqlCommitSize = 1000
@@ -708,9 +727,11 @@ class G2CmdShell(cmd.Cmd):
                 exportRecords = list(set([x['newer_id'] for x in sampleRecords[currentSample]]))
 
                 while True:
-                    reply = userInput('Select (P)revious, (N)ext, (R)eload, (S)crolling view, (W)hy view, (E)xport records, (Q)uit ... ')
+                    reply = userInput('Select (P)revious, (N)ext, (S)croll, (W)hy, (E)xport, (Q)uit ... ')
                     if reply:
                         removeFromHistory()
+                    else:
+                        break
 
                     if reply.upper().startswith('R'): #--reload
                         break
@@ -748,6 +769,12 @@ class G2CmdShell(cmd.Cmd):
 
     # -----------------------------
     def auditResult (self, arg):
+
+        if not g2Dbo:
+            print('')
+            print('Sorry a database conenction is required for this function!')
+            print('')
+            return
 
         auditRecords = arg
         exportRecords = []
@@ -998,7 +1025,7 @@ class G2CmdShell(cmd.Cmd):
                     sampleRecords = sampleRecords + theseRecords 
 
             if len(sampleRecords) == 0:
-                printWithNewLines('No records found for entitySizeBreakdown %s' % arg, 'B')
+                print('\nNo records found for entitySizeBreakdown %s, command syntax: %s \n' % (arg, '\n\n' + self.do_entitySizeBreakdown.__doc__[1:]))
             else:
 
                 currentSample = 0
@@ -1014,9 +1041,11 @@ class G2CmdShell(cmd.Cmd):
                         printWithNewLines('The statistics loaded are out of date for this entity','E')
 
                     while True:
-                        reply = userInput('Select (P)revious, (N)ext, (R)eload, (S)crolling view, (W)hy view, (E)xport data, (Q)uit ...')
+                        reply = userInput('Select (P)revious, (N)ext, (S)croll, (D)etail, (W)hy, (E)xport, (Q)uit ...')
                         if reply:
                             removeFromHistory()
+                        else:
+                            break
 
                         if reply.upper().startswith('R'): #--reload
                             break
@@ -1038,6 +1067,8 @@ class G2CmdShell(cmd.Cmd):
                         #--special actions 
                         elif reply.upper().startswith('S'): #--scrolling view
                             self.do_scroll('')
+                        elif reply.upper().startswith('D'): #--detail view
+                            self.do_get('detail ' + ','.join(exportRecords))
                         elif reply.upper().startswith('W'): #--why view
                             self.do_why(','.join(exportRecords))
                         elif reply.upper().startswith('E'): #--export
@@ -1109,7 +1140,7 @@ class G2CmdShell(cmd.Cmd):
 
             argTokens = arg.split()
             if len(argTokens) != 2:
-                printWithNewLines('%s is an invalid argument' % arg, 'B')
+                print('\nMissing argument(s) for %s, command syntax: %s \n' % ('do_dataSourceSummary', '\n\n' + self.do_dataSourceSummary.__doc__[1:]))
                 return
 
             dataSource = argTokens[0].upper()
@@ -1158,9 +1189,15 @@ class G2CmdShell(cmd.Cmd):
                     if returnCode != 0:
                         printWithNewLines('The statistics loaded are out of date for this record!','E')
                     while True:
-                        reply = userInput('Select (P)revious, (N)ext, (R)eload, (S)crolling view, (W)hy view, (E)xport data, (Q)uit ...')
+                        if matchLevelCode in ('SINGLE_SAMPLE', 'DUPLICATE_SAMPLE'):
+                            reply = userInput('Select (P)revious, (N)ext, (S)croll, (D)etail, (W)hy, (E)xport, (Q)uit ...')
+                        else:
+                            reply = userInput('Select (P)revious, (N)ext, (S)croll, (W)hy, (E)xport, (Q)uit ...')
+          
                         if reply:
                             removeFromHistory()
+                        else:
+                            break
 
                         if reply.upper().startswith('R'): #--reload
                             break
@@ -1182,6 +1219,8 @@ class G2CmdShell(cmd.Cmd):
                         #--special actions 
                         elif reply.upper().startswith('S'): #--scrolling view
                             self.do_scroll('')
+                        elif reply.upper().startswith('D') and matchLevelCode in ('SINGLE_SAMPLE', 'DUPLICATE_SAMPLE'): #--detail view
+                            self.do_get('detail ' + ','.join(exportRecords))
                         elif reply.upper().startswith('W'): #--why view
                             self.do_why(','.join(exportRecords))
                         elif reply.upper().startswith('E'): #--export
@@ -1196,6 +1235,29 @@ class G2CmdShell(cmd.Cmd):
                     if reply.upper().startswith('Q'):
                         break
             self.currentReviewList = None
+
+    # -----------------------------
+    def complete_dataSourceSummary(self, text, line, begidx, endidx):
+        before_arg = line.rfind(" ", 0, begidx)
+        #if before_arg == -1:
+        #    return # arg not found
+
+        fixed = line[before_arg+1:begidx]  # fixed portion of the arg
+        arg = line[before_arg+1:endidx]
+
+        spaces = line.count(' ')
+        if spaces <= 1:
+            possibles = []
+            if self.pocSnapshotData:
+                for dataSource in sorted(self.pocSnapshotData['DATA_SOURCES']):
+                    possibles.append(dataSource)
+        elif spaces == 2:
+            possibles = ['singles', 'duplicates', 'ambiguous', 'possibles', 'relationships' ]
+        else:
+            possibles = []
+
+        return [i for i in possibles if i.startswith(arg)]
+        #return completions
 
     # -----------------------------
     def do_crossSourceSummary (self,arg):
@@ -1251,7 +1313,7 @@ class G2CmdShell(cmd.Cmd):
 
             argTokens = arg.split()
             if len(argTokens) != 3:
-                printWithNewLines('%s is an invalid argument' % arg, 'B')
+                print('\nMissing argument(s) for %s, command syntax: %s \n' % ('do_crossSourceSummary', '\n\n' + self.do_crossSourceSummary.__doc__[1:]))
                 return
 
             dataSource1 = argTokens[0].upper()
@@ -1302,9 +1364,15 @@ class G2CmdShell(cmd.Cmd):
                         printWithNewLines('The statistics loaded are out of date for this entity','E')
 
                     while True:
-                        reply = userInput('Select (P)revious, (N)ext, (R)eload, (S)crolling view, (W)hy view, (E)xport data, (Q)uit ...')
+                        if matchLevelCode in ('MATCH_SAMPLE'):
+                            reply = userInput('Select (P)revious, (N)ext, (S)croll, (D)etail, (W)hy, (E)xport, (Q)uit ...')
+                        else:
+                            reply = userInput('Select (P)revious, (N)ext, (S)croll, (W)hy, (E)xport, (Q)uit ...')
+
                         if reply:
                             removeFromHistory()
+                        else:
+                            break
 
                         if reply.upper().startswith('R'): #--reload
                             break
@@ -1326,6 +1394,8 @@ class G2CmdShell(cmd.Cmd):
                         #--special actions 
                         elif reply.upper().startswith('S'): #--scrolling view
                             self.do_scroll('')
+                        elif reply.upper().startswith('D') and matchLevelCode in ('MATCH_SAMPLE'): #--detail view
+                            self.do_get('detail ' + ','.join(exportRecords))
                         elif reply.upper().startswith('W'): #--why view
                             self.do_why(','.join(exportRecords))
                         elif reply.upper().startswith('E'): #--export
@@ -1340,6 +1410,34 @@ class G2CmdShell(cmd.Cmd):
                     if reply.upper().startswith('Q'):
                         break
                 self.currentReviewList = None
+
+    # -----------------------------
+    def complete_crossSourceSummary(self, text, line, begidx, endidx):
+        before_arg = line.rfind(" ", 0, begidx)
+        if before_arg == -1:
+            return # arg not found
+
+        fixed = line[before_arg+1:begidx]  # fixed portion of the arg
+        arg = line[before_arg+1:endidx]
+
+        spaces = line.count(' ')
+        if spaces <= 1:
+            possibles = []
+            if self.pocSnapshotData:
+                for dataSource in sorted(self.pocSnapshotData['DATA_SOURCES']):
+                    possibles.append(dataSource)
+        elif spaces == 2:
+            possibles = []
+            if self.pocSnapshotData:
+                for dataSource in sorted(self.pocSnapshotData['DATA_SOURCES']):
+                    possibles.append(dataSource)
+        elif spaces == 3:
+            possibles = ['singles', 'duplicates', 'ambiguous', 'possibles', 'relationships' ]
+        else:
+            possibles = []
+
+        completions = [i for i in possibles if i.startswith(arg)]
+        return completions
 
     # -----------------------------
     def do_search(self,arg):
@@ -1623,8 +1721,8 @@ class G2CmdShell(cmd.Cmd):
         self.renderTable(tblTitle, tblColumns, recordList, 5)
 
         #--not trying to analyze entities here
-        #if 'RELATED_ENTITIES' in resolvedJson and len(resolvedJson['RELATED_ENTITIES']) > 0:
-        #    self.showRelatedEntities(resolvedJson['RELATED_ENTITIES'], tblTitle)
+        if 'RELATED_ENTITIES' in resolvedJson and len(resolvedJson['RELATED_ENTITIES']) > 0:
+            self.showRelatedEntities(resolvedJson['RELATED_ENTITIES'], tblTitle)
 
     # -----------------------------
     def showRelatedEntities(self, relatedJson, tblTitle):
@@ -1677,6 +1775,10 @@ class G2CmdShell(cmd.Cmd):
 
     # -----------------------------
     def getAmbiguousEntitySet(self, entityID):
+        if not g2Dbo:
+            print('warning: a database connection is required to locate the ambiguous entity!')
+            return entityID
+
         sql1 = 'select 1 from RES_FEAT_EKEY where RES_ENT_ID = ? and FTYPE_ID = ?'
         if g2Dbo.fetchNext(g2Dbo.sqlExec(sql1, [entityID, self.ambiguousFtypeID])):
             sql2 = 'select a.REL_ENT_ID from RES_REL_EKEY a join RES_RELATE b on b.RES_REL_ID = a.RES_REL_ID where a.RES_ENT_ID = ? and b.IS_AMBIGUOUS = 1'
@@ -1700,7 +1802,7 @@ class G2CmdShell(cmd.Cmd):
 
         showDetail = False #--old flag, replaced by why service which shows interal features
 
-       #--no return code if called direct
+        #--no return code if called direct
         calledDirect = sys._getframe().f_back.f_code.co_name != 'onecmd'
 
         fileName = None
@@ -1915,18 +2017,16 @@ class G2CmdShell(cmd.Cmd):
         '\n\twhy <entity_id1>               (shows why the records in the entity resolved together)' \
         '\n\twhy <entity_id1> <entity_id2>  (shows how the different entities are related and/or why they did not resolve)' \
         '\n\nColor legend:' \
-        '\n\tgreen indicates the values should have matched and contributed to the overall score' \
-        '\n\tred indicates the values should not have matched and hurt the overall score' \
+        '\n\tgreen indicates the values matched and contributed to the overall score' \
+        '\n\tred indicates the values did not match and hurt the overall score' \
+        '\n\tyellow indicates the values did not match but did not hurt the overall score' \
         '\n\tcyan indicates the values only helped get the record on the candidate list' \
-        '\n\tyellow indicates the values only belonged to that record and did not contribute to the overall match' \
         '\n\tdimmed values were ignored (see the bracket legend below)' \
         '\n\nBracket legend:' \
         '\n\t[99] indicates how many entities share this value' \
         '\n\t[~] indicates that this value was not used to find candidates as too many entities share it' \
         '\n\t[!] indicates that this value was not not even scored as way too many entities share it' \
-        '\n\t[#] indicates that this value was supressed in favor of a more complete value' \
-        '\n\nNotes:' \
-        '\n\tThe comparisons performed by this feature currently only approximate the actual comparison made by the engine.\n' 
+        '\n\t[#] indicates that this value was supressed in favor of a more complete value\n'
         if type(arg) != list and not argCheck('do_why', arg, self.do_why.__doc__):
             return -1
 
@@ -1965,310 +2065,489 @@ class G2CmdShell(cmd.Cmd):
         tblColumns = []
         tblRows = []
 
-        #--make sure all entities exist if called direct as loaded stats may be out of date
-        if calledDirect:
-            allFound = True
-            for entityId in entityList:
-                if not g2Dbo.fetchNext(g2Dbo.sqlExec('select 1 from RES_ENT_OKEY where RES_ENT_ID = ?', [entityId,])):
-                    printWithNewLines('missing entity id %s' % entityId, ('N' if not allFound else 'S'))
-                    allFound = False
-            if not allFound:
-                printWithNewLines('Loaded statistics are out of date!', 'B')
-                return -1
-
         if len(entityList) == 1:
+            entityId = entityList[0]
             singleEntityAnalysis = True
-            tblTitle = 'Analysis of entity ID ' + str(entityList[0])
-            tblColumns.append({'name': 'Internal ID', 'width': 20, 'align': 'left'})
-            sql = 'Select '
-            sql += ' a.OBS_ENT_ID, '
-            sql += ' b.DSRC_ID, '
-            sql += ' a.MATCH_KEY '
-            sql += 'from RES_ENT_OKEY a '
-            sql += 'join OBS_ENT b on b.OBS_ENT_ID = a.OBS_ENT_ID '
-            sql += 'where a.RES_ENT_ID = ? '
-            sql += 'order by a.OBS_ENT_ID '
+            if calledFrom == 'do_try':
+                tblTitle = 'Try result: resolved!'
+            else:
+                tblTitle = 'Why for entity ID %s' % str(entityId)
+            tblColumns.append({'name': 'Internal ID', 'width': 50, 'align': 'left'})
 
-            obsList = g2Dbo.fetchAllDicts(g2Dbo.sqlExec(sql, [entityList[0],]))
-            entityList = []
-            storedMatchKeyRow = ['MATCH_KEY (logged)']
-            for obsRow in obsList:
-                entityList.append(obsRow['OBS_ENT_ID'])
-                tblColumns.append({'name': obsRow['OBS_ENT_ID'], 'width': 75, 'align': 'left'})
-                storedMatchKeyRow.append(obsRow['MATCH_KEY'][1:] if obsRow['MATCH_KEY'] else None)
-            if len(entityList) == 0:
-                print('no records found!')
-                print('')
-                return -1 if calledDirect else 0 
+            try:
+                response = bytearray()
+                retcode = g2Engine.whyEntityByEntityID(int(entityId), response)
+                response = response.decode() if response else ''
+            except G2Exception as err:
+                printWithNewLines(str(err), 'B')
+                return -1 if calledDirect else 0
+            jsonData = json.loads(response)
+            if len(jsonData['ENTITIES']) == 0:
+                printWithNewLines('0 records found for %s' % entityId, 'B')
+                return -1 if calledDirect else 0
 
-            #--set feature SQL for below
-            feat_sql = 'Select '
-            feat_sql += ' a.OBS_ENT_ID as RES_ENT_ID, '
-            feat_sql += ' a.FTYPE_ID, '
-            feat_sql += ' a.UTYPE_CODE, '
-            feat_sql += ' b.FEAT_DESC, '
-            feat_sql += ' b.FELEM_VALUES, '
-            feat_sql += ' c.NUM_RES_ENT * NUM_RES_ENT_OOM ENTITY_COUNT, ' 
-            feat_sql += ' c.CANDIDATE_CAP_REACHED, '
-            feat_sql += ' c.SCORING_CAP_REACHED '
-            feat_sql += 'from OBS_FEAT_EKEY a '
-            feat_sql += 'join LIB_FEAT b on b.LIB_FEAT_ID = a.LIB_FEAT_ID '
-            feat_sql += 'left join RES_FEAT_STAT c on c.LIB_FEAT_ID = a.LIB_FEAT_ID '
-            feat_sql += 'where a.OBS_ENT_ID in (%s) ' % ','.join(['?'] * len(set(entityList)))
+
+            #--debug 
+            if debugOn:
+                print(json.dumps(jsonData, indent=4))
+
+            entityData = {}
+            for record in jsonData['ENTITIES'][0]['RESOLVED_ENTITY']['RECORDS']:
+                entityId = record['INTERNAL_ID']
+
+                #--just add the new data source record
+                if record['INTERNAL_ID'] in entityData:
+                    entityData[entityId]['dataSources'].append('%s: %s' %(record['DATA_SOURCE'], record['RECORD_ID']))
+                    continue
+
+                #--create the internal ID structure
+                entityData[entityId] = {}
+                entityData[entityId]['dataSources'] = ['%s: %s' %(record['DATA_SOURCE'], record['RECORD_ID'])]
+
+                #--build feature list for the internal ID from this record's feature section
+                entityData[entityId]['features'] = {}
+                if 'FEATURES' in record:
+                    for feature in record['FEATURES']:
+                        if feature['LIB_FEAT_ID'] not in entityData[entityId]['features']:
+                            entityData[entityId]['features'][feature['LIB_FEAT_ID']] = {}
+
+                #--get info for these features from the resolved entity section
+                for ftypeCode in jsonData['ENTITIES'][0]['RESOLVED_ENTITY']['FEATURES']:
+                    for featRecord in jsonData['ENTITIES'][0]['RESOLVED_ENTITY']['FEATURES'][ftypeCode]:
+                        for featValues in featRecord['FEAT_DESC_VALUES']:
+                            libFeatId = featValues['LIB_FEAT_ID']
+                            if libFeatId in entityData[entityId]['features']:
+                                entityData[entityId]['features'][libFeatId]['ftypeId'] = self.ftypeCodeLookup[ftypeCode]['FTYPE_ID']
+                                entityData[entityId]['features'][libFeatId]['ftypeCode'] = ftypeCode
+                                entityData[entityId]['features'][libFeatId]['featDesc'] = featValues['FEAT_DESC']
+                                entityData[entityId]['features'][libFeatId]['isCandidate'] = featValues['USED_FOR_CAND']
+                                entityData[entityId]['features'][libFeatId]['isScored'] = featValues['USED_FOR_SCORING']
+                                entityData[entityId]['features'][libFeatId]['entityCount'] = featValues['ENTITY_COUNT']
+                                entityData[entityId]['features'][libFeatId]['candidateCapReached'] = featValues['CANDIDATE_CAP_REACHED']
+                                entityData[entityId]['features'][libFeatId]['scoringCapReached'] = featValues['SCORING_CAP_REACHED']
+                                entityData[entityId]['features'][libFeatId]['scoringWasSuppressed'] = featValues['SUPPRESSED']
+
+
+                #--ACCOUNT FOR BUG WHERE LIB_FEAT IN RECORD SECTION, BUT NOT FEATURE SECTION
+                #print('-' * 50)
+                #print(entityId)
+                for libFeatId in entityData[entityId]['features']:
+                    #print(libFeatId, entityData[entityId]['features'][libFeatId])
+                    if 'ftypeId' not in entityData[entityId]['features'][libFeatId]:
+                        #print(json.dumps(jsonData['ENTITIES'][0]['RESOLVED_ENTITY']['FEATURES'], indent=4))
+                        #pause()
+                        #print(json.dumps(record['FEATURES'], indent=4))
+                        #print('missing ', libFeatId])
+                        #pause()
+                        entityData[entityId]['features'][libFeatId]['ftypeId'] = -1
+                        entityData[entityId]['features'][libFeatId]['ftypeCode'] = 'unknown'
+                        entityData[entityId]['features'][libFeatId]['featDesc'] = 'missing %s' % libFeatId
+                        entityData[entityId]['features'][libFeatId]['isCandidate'] = 'N'
+                        entityData[entityId]['features'][libFeatId]['isScored'] = 'N'
+                        entityData[entityId]['features'][libFeatId]['entityCount'] = -1
+                        entityData[entityId]['features'][libFeatId]['candidateCapReached'] = 'N'
+                        entityData[entityId]['features'][libFeatId]['scoringCapReached'] = 'N'
+                        entityData[entityId]['features'][libFeatId]['scoringWasSuppressed'] = 'N'
+
+                #--get the appropriate why record
+                whyRecords = [x for x in jsonData['WHY_RESULTS'] if x['INTERNAL_ID'] == entityId]
+                whyRecord = whyRecords[0] if whyRecords else {}
+                entityData[entityId]['whyKey'] = {} 
+                entityData[entityId]['whyKey']['matchKey'] = whyRecord['MATCH_INFO']['WHY_KEY']
+                entityData[entityId]['whyKey']['ruleCode'] = whyRecord['MATCH_INFO']['WHY_ERRULE_CODE']
+
+                #--update from candidate section of why
+                for ftypeCode in whyRecord['MATCH_INFO']['CANDIDATE_KEYS']:
+                    for featRecord in whyRecord['MATCH_INFO']['CANDIDATE_KEYS'][ftypeCode]:
+                        libFeatId = featRecord['FEAT_ID']
+                        if libFeatId not in entityData[entityId]['features']:
+                            print('warning: candidate feature %s not in record!' % libFeatId)
+                            continue
+                        entityData[entityId]['features'][libFeatId]['wasCandidate'] = 'Yes'
+                        entityData[entityId]['features'][libFeatId]['matchScore'] = 100
+                        entityData[entityId]['features'][libFeatId]['matchLevel'] = 'SAME'
+
+                #--update from scoring section of why
+                for ftypeCode in whyRecord['MATCH_INFO']['FEATURE_SCORES']:
+                    for featRecord in whyRecord['MATCH_INFO']['FEATURE_SCORES'][ftypeCode]:
+                        #--BUG WHERE INBOUND/CANDIDATE IS SOMETIMES REVERSED!
+                        if featRecord['INBOUND_FEAT_ID'] in entityData[entityId]['features']:
+                            libFeatId = featRecord['INBOUND_FEAT_ID']
+                            libFeatDesc = featRecord['INBOUND_FEAT']
+                            matchedFeatId = featRecord['CANDIDATE_FEAT_ID']
+                            matchedFeatDesc = featRecord['CANDIDATE_FEAT']
+                        elif featRecord['CANDIDATE_FEAT_ID'] in entityData[entityId]['features']:
+                            #print(entityId, featRecord)
+                            #pause()
+                            libFeatId = featRecord['CANDIDATE_FEAT_ID']
+                            libFeatDesc = featRecord['CANDIDATE_FEAT']
+                            matchedFeatId = featRecord['INBOUND_FEAT_ID']
+                            matchedFeatDesc = featRecord['INBOUND_FEAT']
+                        else:
+                            print('warning: scored feature %s not in record!' % libFeatId)
+                            continue   
+                        #--only store the best score for the feature
+                        if 'GNR_FN' in featRecord:
+                            matchScore = featRecord['GNR_FN']
+                            if 'GNR_ON' in featRecord and featRecord['GNR_ON'] > 0:
+                                matchScoreDisplay = 'org:%s' % featRecord['GNR_ON']
+                            else:
+                                matchScoreDisplay = 'full:%s' % featRecord['GNR_FN']
+                                if 'GNR_GN' in featRecord and featRecord['GNR_GN'] > 0:
+                                    matchScoreDisplay += '|giv:%s' % featRecord['GNR_GN']
+                                if 'GNR_SN' in featRecord and featRecord['GNR_SN'] > 0:
+                                    matchScoreDisplay += '|sur:%s' % featRecord['GNR_SN']
+                        else:
+                            matchScore = featRecord['FULL_SCORE']
+                            matchScoreDisplay = str(featRecord['FULL_SCORE'])
+
+                        matchLevel = featRecord['SCORE_BUCKET']
+                        featBehavior = featRecord['SCORE_BEHAVIOR']
+                        if 'wasScored' not in entityData[entityId]['features'][libFeatId] or matchScore > entityData[entityId]['features'][libFeatId]['matchScore']:
+                            entityData[entityId]['features'][libFeatId]['wasScored'] = 'Yes'
+                            entityData[entityId]['features'][libFeatId]['matchScore'] = matchScore
+                            entityData[entityId]['features'][libFeatId]['matchScoreDisplay'] = matchScoreDisplay
+                            entityData[entityId]['features'][libFeatId]['matchLevel'] = matchLevel
+                            entityData[entityId]['features'][libFeatId]['matchedFeatId'] = matchedFeatId
+                            entityData[entityId]['features'][libFeatId]['matchedFeatDesc'] = matchedFeatDesc
+                            entityData[entityId]['features'][libFeatId]['featBehavior'] = featBehavior
+                            #--BUG WHERE FEATURE SECTION DOES NOT CONTAIN A SCORED FEATURE
+                            if entityData[entityId]['features'][libFeatId]['ftypeId'] == -1:
+                                entityData[entityId]['features'][libFeatId]['ftypeId'] = self.ftypeCodeLookup[ftypeCode]['FTYPE_ID']
+                                entityData[entityId]['features'][libFeatId]['ftypeCode'] = ftypeCode
+                                entityData[entityId]['features'][libFeatId]['featDesc'] = libFeatDesc
+
 
         #--its a list of entities so asking why not
         else:
-            tblTitle = 'Analysis of listed entities'
-            tblColumns.append({'name': 'Entity ID', 'width': 20, 'align': 'left'})
-            for entityId in entityList:
-                tblColumns.append({'name': entityId, 'width': 75, 'align': 'left'})
-
-            #--set feature SQL for below
-            feat_sql = 'Select '
-            feat_sql += ' a.RES_ENT_ID, '
-            feat_sql += ' a.SUPPRESSED, '
-            feat_sql += ' a.FTYPE_ID, '
-            feat_sql += ' a.UTYPE_CODE, '
-            feat_sql += ' b.FEAT_DESC, '
-            feat_sql += ' b.FELEM_VALUES, '
-            feat_sql += ' c.NUM_RES_ENT * NUM_RES_ENT_OOM ENTITY_COUNT, ' 
-            feat_sql += ' c.CANDIDATE_CAP_REACHED, '
-            feat_sql += ' c.SCORING_CAP_REACHED '
-            feat_sql += 'from RES_FEAT_EKEY a '
-            feat_sql += 'join LIB_FEAT b on b.LIB_FEAT_ID = a.LIB_FEAT_ID '
-            feat_sql += 'left join RES_FEAT_STAT c on c.LIB_FEAT_ID = a.LIB_FEAT_ID '
-            feat_sql += 'where a.RES_ENT_ID in (%s) ' % ','.join(['?'] * len(set(entityList)))
-
-        #--create a row for the data sources
-        tblRow = ['DATA SOURCES']
-        for entityId in entityList:
-
-            dsrc_sql = 'select ' 
-            dsrc_sql += ' a.DSRC_ID, '
-            dsrc_sql += ' b.RECORD_ID '
-            dsrc_sql += 'from OBS_ENT a '
-            dsrc_sql += 'join DSRC_RECORD b on b.ENT_SRC_KEY = a.ENT_SRC_KEY and b.DSRC_ID = a.DSRC_ID and b.ETYPE_ID = a.ETYPE_ID '
-            if singleEntityAnalysis:
-                dsrc_sql += 'where a.OBS_ENT_ID = ?'
+            if calledFrom == 'do_try':
+                tblTitle = 'Try result: NOT resolved!'
             else:
-                dsrc_sql += 'where a.OBS_ENT_ID in (select OBS_ENT_ID from RES_ENT_OKEY where RES_ENT_ID = ?) '
-            dataSources = {}
-            cursor = g2Dbo.sqlExec(dsrc_sql, [entityId,])
-            rowData = g2Dbo.fetchNext(cursor)
-            while rowData:
-                rowData['DATA_SOURCE'] = self.dsrcLookup[rowData['DSRC_ID']]['DSRC_CODE'] if rowData['DSRC_ID'] in self.dsrcLookup else '?'
-                if rowData['DATA_SOURCE'] not in dataSources:
-                    dataSources[rowData['DATA_SOURCE']] = []
-                dataSources[rowData['DATA_SOURCE']].append(rowData['RECORD_ID'])
-                rowData = g2Dbo.fetchNext(cursor)
-            cellValue = ''
-            for dataSource in sorted(dataSources):
-                if cellValue:
-                    cellValue += '\n'
-                if len(dataSources[dataSource]) == 1:
-                    cellValue += '%s: %s' % (dataSource, dataSources[dataSource][0])
-                else:
-                    cellValue += '%s: %s records' % (dataSource, len(dataSources[dataSource]))
-            tblRow.append(cellValue)
-        tblRows.append(tblRow)
+                tblTitle = 'Why NOT for listed entities'
+            tblColumns.append({'name': 'Entity ID', 'width': 50, 'align': 'left'})
 
-        #--create a feature array for comparison
-        ftypeList = {}
-        cursor = g2Dbo.sqlExec(feat_sql, list(set(entityList)))
-        rowData = g2Dbo.fetchNext(cursor)
-        while rowData:
-            if rowData['FTYPE_ID'] == self.ambiguousFtypeID:
+            masterFtypeList = []
+            entityData = {}
+            for entityId in entityList:
+                entityData[entityId] = {}
+                try:
+                    response = bytearray()
+                    retcode = g2Engine.whyEntityByEntityID(int(entityId), response)
+                    response = response.decode() if response else ''
+                except G2Exception as err:
+                    printWithNewLines(str(err), 'B')
+                    return -1 if calledDirect else 0
+                jsonData = json.loads(response)
+                if len(jsonData['ENTITIES']) == 0:
+                    printWithNewLines('0 records found for %s' % entityId, 'B')
+                    return -1 if calledDirect else 0
 
-                #--find the ambiguous type and feature (if any)
-                ambiguousCategory = 'Conflicting exclusive'
-                ambiguousFtypeID = 0
-                felemList = rowData['FELEM_VALUES'].split('|')
-                for felemString in felemList:
-                    felemDict = felemString.split(':')
-                    if felemDict[0] == '110':
-                        ambiguousFtypeID = int(felemDict[1])
-                    elif felemDict[0] == '115':
-                        if felemDict[1] == '1':
-                            ambiguousCategory = 'Conflicting exclusive'
-                        elif felemDict[1] == '2':
-                            ambiguousCategory = 'Suppressed feature'
-                        elif felemDict[1] == '3':
-                            ambiguousCategory = 'Absent Feature'
+                #--add the data sources and create search json
+                searchJson = {}
+                entityData[entityId]['dataSources'] = []
+                for record in jsonData['ENTITIES'][0]['RESOLVED_ENTITY']['RECORDS']:
+                    entityData[entityId]['dataSources'].append('%s: %s' %(record['DATA_SOURCE'], record['RECORD_ID']))
+                    if not searchJson:
+                        searchJson = record['JSON_DATA']
+                    else: #--merge the json records
+                        #searchJson = jsonMerge(searchJson, record['JSON_DATA'])
+                        rootAttributes = {}
+                        for rootAttribute in record['JSON_DATA']:
+                            if type(rootAttribute) != list:
+                                rootAttributes[rootAttribute] = record['JSON_DATA'][rootAttribute]
+                            else:
+                                if rootAttribute not in searchJson:
+                                    searchJson[rootAttribute] = []
+                                for subRecord in record['JSON_DATA'][rootAttribute]:
+                                    searchJson[rootAttribute].append(subRecord)
+                        if rootAttributes:
+                            if 'ROOT_ATTRIBUTES' not in searchJson:
+                                searchJson['ROOT_ATTRIBUTES'] = []
+                            searchJson['ROOT_ATTRIBUTES'].append(rootAttributes)
 
-                #--add the ambiguous ftype code (if one)
-                rowData['FEAT_DESC'] = ambiguousCategory
-                if ambiguousFtypeID != 0:
-                    rowData['FEAT_DESC'] += (': ' + self.ftypeLookup[ambiguousFtypeID]['FTYPE_CODE'])
+                #--get info for these features from the resolved entity section
+                entityData[entityId]['features'] = {}
+                for ftypeCode in jsonData['ENTITIES'][0]['RESOLVED_ENTITY']['FEATURES']:
+                    for featRecord in jsonData['ENTITIES'][0]['RESOLVED_ENTITY']['FEATURES'][ftypeCode]:
+                        for featValues in featRecord['FEAT_DESC_VALUES']:
+                            libFeatId = featValues['LIB_FEAT_ID']
+                            if libFeatId not in entityData[entityId]['features']:
+                                entityData[entityId]['features'][libFeatId] = {}
+                                entityData[entityId]['features'][libFeatId]['ftypeId'] = self.ftypeCodeLookup[ftypeCode]['FTYPE_ID']
+                                entityData[entityId]['features'][libFeatId]['ftypeCode'] = ftypeCode
+                                entityData[entityId]['features'][libFeatId]['featDesc'] = featValues['FEAT_DESC']
+                                entityData[entityId]['features'][libFeatId]['isCandidate'] = featValues['USED_FOR_CAND']
+                                entityData[entityId]['features'][libFeatId]['isScored'] = featValues['USED_FOR_SCORING']
+                                entityData[entityId]['features'][libFeatId]['entityCount'] = featValues['ENTITY_COUNT']
+                                entityData[entityId]['features'][libFeatId]['candidateCapReached'] = featValues['CANDIDATE_CAP_REACHED']
+                                entityData[entityId]['features'][libFeatId]['scoringCapReached'] = featValues['SCORING_CAP_REACHED']
+                                entityData[entityId]['features'][libFeatId]['scoringWasSuppressed'] = featValues['SUPPRESSED']
+                                if entityData[entityId]['features'][libFeatId]['ftypeId'] not in masterFtypeList:
+                                    masterFtypeList.append(entityData[entityId]['features'][libFeatId]['ftypeId'])
 
-            #--if no featDesc, use the felem values
-            if not rowData['FEAT_DESC']: #--if still not set
-                rowData['FEAT_DESC'] = rowData['FELEM_VALUES']
+                #--see how this entity is related to the others
+                try: 
+                    response = bytearray()
+                    retcode = g2Engine.getEntityByEntityIDV2(int(entityId), g2Engine.G2_ENTITY_BRIEF_FORMAT, response)
+                    response = response.decode() if response else ''
+                except G2Exception as err:
+                    print(str(err))
+                    return
+                entityData[entityId]['crossRelations'] = []
+                jsonResponse = json.loads(response)
+                for relatedEntity in jsonResponse['RELATED_ENTITIES']:
+                    if relatedEntity['ENTITY_ID'] in entityList:
+                        relationship = {}
+                        relationship['entityId'] = relatedEntity['ENTITY_ID']
+                        relationship['matchKey'] = relatedEntity['MATCH_KEY']
+                        relationship['ruleCode'] = relatedEntity['ERRULE_CODE']
+                        entityData[entityId]['crossRelations'].append(relationship)
 
-            if rowData['FTYPE_ID'] not in ftypeList:
-                ftypeList[rowData['FTYPE_ID']] = {}
-            if rowData['RES_ENT_ID'] not in ftypeList[rowData['FTYPE_ID']]:
-                ftypeList[rowData['FTYPE_ID']][rowData['RES_ENT_ID']] = []
-            ftypeList[rowData['FTYPE_ID']][rowData['RES_ENT_ID']].append(rowData)
-            rowData = g2Dbo.fetchNext(cursor)
-        
-        #--initialize matchKeys
-        matchingFeats = {}
-        nonMatchingFeats = {}
-        candidateFeats = {}
-        for entityId in entityList:
-            matchingFeats[entityId] = []
-            nonMatchingFeats[entityId] = []
-            candidateFeats[entityId] = []
+                #--search for this entity to get the scores against the others
+                try: 
+                    response = bytearray()
+                    retcode = g2Engine.searchByAttributes(json.dumps(searchJson), response)
+                    response = response.decode() if response else ''
+                except G2Exception as err:
+                    print(str(err))
+                    return
+                entityData[entityId]['whyKey'] = []
+                jsonResponse = json.loads(response)
 
-        #--for each feature
-        for ftypeId in sorted(ftypeList):
-            ftypeCode = self.ftypeLookup[ftypeId]['FTYPE_CODE']
-            ftypeExcl = True if str(self.ftypeLookup[ftypeId]['FTYPE_EXCL']).upper() in ('YES', 'Y', '1') else False
-            usedForCand = True if str(self.ftypeLookup[ftypeId]['USED_FOR_CAND']).upper() in ('YES', 'Y', '1') else False
-            cfuncCode = self.scoredFtypeCodes[ftypeCode]['CFUNC_CODE'] if ftypeCode in self.scoredFtypeCodes else None
+                if debugOn:
+                    print(json.dumps(jsonResponse, indent=4))
 
-            #--do comparison
-            for entityID1 in ftypeList[ftypeId]:
-                for i in range(len(ftypeList[ftypeId][entityID1])):
-
-                    # determine if matched any other entities
-                    matched = False
-                    featData1 = ftypeList[ftypeId][entityID1][i]
-                    ftypeList[ftypeId][entityID1][i]['MATCH_CODE'] = 3 #--no match
-                    for entityID2 in ftypeList[ftypeId]:
-                        if entityID2 != entityID1:
-                            for featData2 in ftypeList[ftypeId][entityID2]:
-                                if fuzzyCompare(ftypeCode, cfuncCode, featData1['FEAT_DESC'], featData2['FEAT_DESC']):
-                                    ftypeList[ftypeId][entityID1][i]['MATCH_CODE'] = 1 #--matched
-                                    matched = True
+                for resolvedEntity in jsonResponse['SEARCH_RESPONSE']['RESOLVED_ENTITIES']:
+                    if resolvedEntity['ENTITY_ID'] in entityList and resolvedEntity['ENTITY_ID'] != entityId:
+                        whyKey = {}
+                        whyKey['matchKey'] = resolvedEntity['MATCH_KEY'] 
+                        whyKey['ruleCode'] = resolvedEntity['ERRULE_CODE']
+                        whyKey['entityId'] = resolvedEntity['ENTITY_ID']
+                        entityData[entityId]['whyKey'].append(whyKey)
+                        for featureCode in resolvedEntity['MATCH_SCORES']:
+                            #--get the best score for the feature
+                            bestScoreRecord = None
+                            for scoreRecord in resolvedEntity['MATCH_SCORES'][featureCode]:
+                                #print (json.dumps(scoreRecord, indent=4))
+                                if not bestScoreRecord:
+                                    bestScoreRecord = scoreRecord
+                                elif 'GNR_FN' in scoreRecord and scoreRecord['GNR_FN'] > bestScoreRecord['GNR_FN']:
+                                    bestScoreRecord = scoreRecord
+                                elif 'FULL_SCORE' in scoreRecord and scoreRecord['FULL_SCORE'] > bestScoreRecord['FULL_SCORE']:
+                                    bestScoreRecord = scoreRecord
+                            #--update the entity feature
+                            for libFeatId in entityData[entityId]['features']:
+                                #print ('-' * 50)
+                                #print(entityData[entityId]['features'][libFeatId])
+                                if entityData[entityId]['features'][libFeatId]['ftypeCode'] == featureCode and entityData[entityId]['features'][libFeatId]['featDesc'] in (bestScoreRecord['INBOUND_FEAT'], bestScoreRecord['CANDIDATE_FEAT']):
+                                    matchScore = 0
+                                    matchLevel = 'DIFF'
+                                    if 'GNR_FN' in bestScoreRecord:
+                                        matchScore = bestScoreRecord['GNR_FN']
+                                        if 'GNR_ON' in bestScoreRecord and bestScoreRecord['GNR_ON'] > 0:
+                                            matchScoreDisplay = 'org:%s' % bestScoreRecord['GNR_ON']
+                                        else:
+                                            matchScoreDisplay = 'full:%s' % bestScoreRecord['GNR_FN']
+                                            if 'GNR_GN' in bestScoreRecord and bestScoreRecord['GNR_GN'] > 0:
+                                                matchScoreDisplay += '|giv:%s' % bestScoreRecord['GNR_GN']
+                                            if 'GNR_SN' in bestScoreRecord and bestScoreRecord['GNR_SN'] > 0:
+                                                matchScoreDisplay += '|sur:%s' % bestScoreRecord['GNR_SN']
+                                        if matchScore == 100:
+                                            matchLevel = 'SAME'
+                                        else:
+                                            if 'NAME' in resolvedEntity['MATCH_KEY']:
+                                                matchLevel = 'CLOSE'
+                                    else:
+                                        matchScore = bestScoreRecord['FULL_SCORE']
+                                        matchScoreDisplay = str(bestScoreRecord['FULL_SCORE'])
+                                        if matchScore == 100:
+                                            matchLevel = 'SAME'
+                                        else:
+                                            cfrtnRecord = self.cfrtnLookup[self.cfuncLookup[self.scoredFtypeCodes[featureCode]['CFUNC_ID']]['CFUNC_ID']]
+                                            if matchScore >= cfrtnRecord['CLOSE_SCORE']:
+                                                matchLevel = 'CLOSE'
+                                    
+                                    if 'matchScore' not in entityData[entityId]['features'][libFeatId] or matchScore > entityData[entityId]['features'][libFeatId]['matchScore']:
+                                        entityData[entityId]['features'][libFeatId]['wasScored'] = 'Yes'
+                                        entityData[entityId]['features'][libFeatId]['matchedFeatId'] = 0
+                                        entityData[entityId]['features'][libFeatId]['matchedFeatDesc'] = bestScoreRecord['CANDIDATE_FEAT'] if entityData[entityId]['features'][libFeatId]['featDesc'] == bestScoreRecord['INBOUND_FEAT'] else bestScoreRecord['INBOUND_FEAT']
+                                        entityData[entityId]['features'][libFeatId]['matchScore'] = matchScore
+                                        entityData[entityId]['features'][libFeatId]['matchScoreDisplay'] = matchScoreDisplay
+                                        entityData[entityId]['features'][libFeatId]['matchLevel'] = matchLevel
                                     break
-                                else:
-                                    ftypeList[ftypeId][entityID1][i]['MATCH_CODE'] = 2 #--different
-                        if matched:
+
+            #--find matching features whether scored or not (accounts for candidate keys as well)
+            for entityId in entityList:
+                for libFeatId in entityData[entityId]['features']:
+                    for entityId1 in entityList:
+                        if entityId != entityId1 and libFeatId in entityData[entityId1]['features']:
+                            entityData[entityId]['features'][libFeatId]['wasCandidate'] = 'Yes' if entityData[entityId]['features'][libFeatId]['isCandidate'] == 'Y' else 'No'
+                            entityData[entityId]['features'][libFeatId]['matchScore'] = 100
+                            entityData[entityId]['features'][libFeatId]['matchLevel'] = 'SAME'
                             break
 
-                    #--create a feature description with flags that show if generic or supressed
-                    displayFeatDesc = featData1['FEAT_DESC']
-                    ignoredCode = 0
-                    if featData1['ENTITY_COUNT']:
-                        displayFeatDesc += ' ['
-                        displayFeatDesc += ('~' if featData1['CANDIDATE_CAP_REACHED'] == 'Y' else '')
-                        displayFeatDesc += ('!' if featData1['SCORING_CAP_REACHED'] == 'Y' else '')
-                        displayFeatDesc += ('#' if 'SUPPRESSED' in featData1 and featData1['SUPPRESSED'] == 'Y' else '')
-                        displayFeatDesc += str(featData1['ENTITY_COUNT']) + ']'
-                        if featData1['SCORING_CAP_REACHED'] == 'Y' or ('SUPPRESSED' in featData1 and featData1['SUPPRESSED'] == 'Y'):
-                            ignoredCode = 2 #--not scored
-                        elif featData1['CANDIDATE_CAP_REACHED'] == 'Y':
-                            ignoredCode = 1 #--not a candidate builder
+        #--create a row for the data sources
+        #print('=' * 50)
+        #print(json.dumps(entityData, indent=4))
 
-                    ftypeList[ftypeId][entityID1][i]['DISPLAY_FEAT_DESC'] = displayFeatDesc
-                    ftypeList[ftypeId][entityID1][i]['IGNORED_CODE'] = ignoredCode
+        dataSourceRow = ['DATA SOURCES']
+        matchKeyRow = ['WHY RESULT']
+        crossRelationsRow = ['RELATIONSHIPS']
+        featureArray = {}
+        for entityId in sorted(entityData.keys()):
 
-            #--format output
-            tblRow = [ftypeCode]
-            for entityId in entityList:
-                overrideExcl = False #--for when address is exclusive due to business usage type
-                bestMatch = 3 #--across all instances of this feature for this entity
-                cellValues = []
-                if entityId in ftypeList[ftypeId]:
-                    for featData in sorted(ftypeList[ftypeId][entityId], key=lambda k: (k['MATCH_CODE'], k['IGNORED_CODE'])):
-                        ##print(featData['RES_ENT_ID'], featData['MATCH_CODE'], featData['IGNORED_CODE'], featData['DISPLAY_FEAT_DESC'])
-                        displayFeatDesc = featData['DISPLAY_FEAT_DESC']
-                        ignoredCode = featData['IGNORED_CODE']
+            #--add the column
+            tblColumns.append({'name': entityId, 'width': 75, 'align': 'left'})
 
-                        #--just show the ambiguous entity feature as bad
-                        if ftypeId == self.ambiguousFtypeID:
-                            cellValues.append(colorize(displayFeatDesc, self.colors['bad']))
-                        elif featData['MATCH_CODE'] == 1: #--matched
-                            if cfuncCode: #--if scored
-                                if ignoredCode == 2:  #--not actually scored
-                                    cellValues.append(colorize(displayFeatDesc, self.colors['good'] + ',dim'))
-                                else:
-                                    cellValues.append(colorize(displayFeatDesc, self.colors['good']))
-                                    bestMatch = 1
-                            else: #--just a candidate builder
-                                if ignoredCode != 0: #--went generic
-                                    cellValues.append(colorize(displayFeatDesc, self.colors['highlight2'] + ',dim'))
-                                else:
-                                    cellValues.append(colorize(displayFeatDesc, self.colors['highlight2']))
-                                    bestMatch = 1
+            #--add the data sources
+            dataSourceRow.append('\n'.join(sorted(entityData[entityId]['dataSources'])))
 
-                        elif featData['MATCH_CODE'] == 2: #--not matched (different)
-                            overrideExcl = ftypeCode == 'ADDRESS' and featData['UTYPE_CODE'].upper() == 'BUSINESS'
-                            if cfuncCode and (ftypeExcl or overrideExcl): #--if scored and exclusive
-                                if ignoredCode == 2:  #--not actually scored
-                                    cellValues.append(colorize(displayFeatDesc, self.colors['bad'] + ',dim'))
-                                else:
-                                    cellValues.append(colorize(displayFeatDesc, self.colors['bad']))
-                                    if bestMatch != 1:
-                                        bestMatch = 2
-                            else: #--just a candidate builder that didn't match
-                                cellValues.append(displayFeatDesc)
+            #--add the cross relationships
+            if 'crossRelations' in entityData[entityId]:
+                relationList = []
+                for relationship in [x for x in sorted(entityData[entityId]['crossRelations'], key=lambda k: k['entityId'])]:
+                    if len(entityList) <= 2: #--supress to entity if only 2
+                        relationList.append('%s (%s)' % (relationship['matchKey'], relationship['ruleCode']))
+                    else:
+                        relationList.append('%s (%s) to %s' % (relationship['matchKey'], relationship['ruleCode'], relationship['entityId']))
+                crossRelationsRow.append('\n'.join(relationList))
 
-                        else: #--no match attempt, only belongs to this entity
-                            cellValues.append(colorize(displayFeatDesc, self.colors['caution']))
-
-                #-add this entity's features to that row
-                tblRow.append('\n'.join(cellValues))
-
-                #--update match key dictionaries
-                if cfuncCode:
-                    if bestMatch == 1:
-                        matchingFeats[entityId].append(ftypeCode)
-                    elif bestMatch == 2 and (ftypeExcl or overrideExcl):
-                        nonMatchingFeats[entityId].append(ftypeCode)
-                if usedForCand and bestMatch == 1:
-                    candidateFeats[entityId].append(ftypeCode)
-
-            #--add this feature's data to the table
-            if ftypeId == self.ambiguousFtypeID:
-                tblRows.insert(0, tblRow)
+            #--add the matchKey
+            if not entityData[entityId]['whyKey']:
+                matchKeyRow.append(colorize('no resolve or relate!', self.colors['bad']))
+            elif singleEntityAnalysis:
+                matchKeyRow.append(self.colorizeWhyKey(entityData[entityId]['whyKey']))
             else:
-                tblRows.append(tblRow)
+                tempList = []
+                for whyKey in [x for x in sorted(entityData[entityId]['whyKey'], key=lambda k: k['entityId'])]:
+                    if 'entityId' in whyKey and len(entityList) <= 2:  #--supress to entity if only 2
+                        del whyKey['entityId']
+                    tempList.append(self.colorizeWhyKey(whyKey))
+                matchKeyRow.append('\n'.join(tempList))
 
-        #--compute likey match keys 
-        tblRow = ['MATCH_KEY (current)']
-        for entityId in entityList:
-            matchKey = ''
-            if matchingFeats[entityId]:
-                matchKey += colorize('+' + '+'.join(matchingFeats[entityId]), self.colors['good'])
-            if nonMatchingFeats[entityId]:
-                matchKey += colorize('-' + '-'.join(nonMatchingFeats[entityId]), self.colors['bad'])
-            if len(candidateFeats[entityId]) == 0 and len(entityList) > 1:
-                matchKey += (('\n' if len(matchKey) > 0 else '') + colorize('no candidates!', 'bg.red,fg.white'))
-            #tblRow.append(colorize(matchKey, self.colors['highlight1']))
-            tblRow.append(matchKey)
+            #--prepare the feature rows
+            for libFeatId in entityData[entityId]['features']:
+                featureData = entityData[entityId]['features'][libFeatId]
+                #print('~' * 10)
+                #print(entityId)
+                #print(libFeatId)
+                #print(featureData)
+                #if 'ftypeId' not in featureData:
+                #    featureData['ftypeId'] = -1
+                #    featureData['featDesc'] = '%s' % libFeatId
 
-        tblRows.insert(0, tblRow)
+                ftypeId = featureData['ftypeId']
+                ftypeCode = featureData['ftypeCode']
+                if ftypeId not in featureArray:
+                    featureArray[ftypeId] = {}
+                if entityId not in featureArray[ftypeId]:
+                    featureArray[ftypeId][entityId] = []
 
-        #--show the stored match keys for single entity analysis
-        if singleEntityAnalysis:
-            tblRows.insert(1, storedMatchKeyRow)
+                #--normal feature processing
+                if ftypeCode != 'AMBIGUOUS_ENTITY':
+                    featDesc = featureData['featDesc'].strip()
+                    dimmit = False
+                    featDesc += ' ['
+                    if featureData['candidateCapReached'] == 'Y':
+                        featDesc += '~'
+                        dimmit = True
+                    if featureData['scoringCapReached'] == 'Y':
+                        featDesc += '!'
+                        dimmit = True
+                    if featureData['scoringWasSuppressed'] == 'Y':
+                        featDesc += '#'
+                        dimmit = True
+                    featDesc += str(featureData['entityCount']) + ']'
 
-        #--show the cross relationships if comparing across entities
-        else:
-            tblRow = ['CROSS RELS']
-            for entityId in entityList:
-                sql = 'select ' 
-                sql += ' a.REL_ENT_ID, '
-                sql += ' b.LAST_ERRULE_ID, '
-                sql += ' b.MATCH_KEY '
-                sql += 'from RES_REL_EKEY a '
-                sql += 'join RES_RELATE b on b.RES_REL_ID = a.RES_REL_ID '
-                sql += 'where a.RES_ENT_ID = ? '
-                cellValue = ''
-                cursor = g2Dbo.sqlExec(sql, [entityId,])
-                rowData = g2Dbo.fetchNext(cursor)
-                while rowData:
-                    rowData['ERRULE_CODE'] = self.erruleLookup[rowData['LAST_ERRULE_ID']]['ERRULE_CODE'] if rowData['LAST_ERRULE_ID'] in self.erruleLookup else '?'
-                    if rowData['REL_ENT_ID'] in entityList:
-                        if cellValue:
-                            cellValue += '\n'
-                        cellValue += '%s on %s (%s)' % (rowData['REL_ENT_ID'], rowData['MATCH_KEY'], rowData['ERRULE_CODE'])
+                    sortOrder = 3
+                    if 'wasScored' in featureData:
+                        if featureData['matchLevel'] in ('SAME', 'CLOSE'):
+                            sortOrder = 1
+                            featColor = self.colors['good'] 
+                        else:
+                            sortOrder = 2
+                            if not entityData[entityId]['whyKey']:
+                                featColor = self.colors['bad']
+                            elif type(entityData[entityId]['whyKey']) == dict and ('-' + ftypeCode) not in entityData[entityId]['whyKey']['matchKey']:
+                                featColor = self.colors['caution']
+                            elif type(entityData[entityId]['whyKey']) == list and ('-' + ftypeCode) not in entityData[entityId]['whyKey'][0]['matchKey']:
+                                featColor = self.colors['caution']
+                            else:
+                                featColor = self.colors['bad']
+                        if dimmit: 
+                            featColor += ',dim'
 
-                    rowData = g2Dbo.fetchNext(cursor)
-                tblRow.append(cellValue)
-            tblRows.insert(1, tblRow)
+                        featDesc = colorize(featDesc, featColor)
+                        #--note: addresses may score same tho not exact!
+                        if featureData['matchLevel'] != 'SAME' or featureData['matchedFeatDesc'] != featureData['featDesc']:  
+                            featDesc += '\n  '
+                            featDesc += colorize('%s (%s)' % (featureData['matchedFeatDesc'].strip(), featureData['matchScoreDisplay']), featColor+',italics')
+
+                    elif 'matchScore' in featureData: #--must be same and likley a candidate builder
+                        sortOrder = 1
+                        featDesc = colorize(featDesc, self.colors['highlight2'] + (',dim' if dimmit else ''))
+
+                    #--sort rejected matches lower 
+                    if dimmit: 
+                        sortOrder += .5
+
+                #--ambiguous feature processing
+                else:
+                    #--BUG: AMBIGUOUS FEATURES HAVE NO DESCRIPTION SO MUST LOOK IT UP DIRECTLY
+                    sortOrder = 1
+                    featDesc = 'need db connection to display'
+                    if g2Dbo:
+                        cursor = g2Dbo.sqlExec('select FELEM_VALUES from LIB_FEAT where LIB_FEAT_ID = ' + str(libFeatId))
+                        rowData = g2Dbo.fetchNext(cursor)
+                        if rowData:
+                            ambiguousReason = []
+                            felemList = rowData['FELEM_VALUES'].split('|')
+                            for felemString in felemList:
+                                felemDict = felemString.split(':')
+                                if felemDict[0] == '110':
+                                    ambiguousReason.append(self.ftypeLookup[int(felemDict[1])]['FTYPE_CODE'])
+                                elif felemDict[0] == '111':
+                                    ambiguousReason.append('Tier ' + felemDict[1])
+                                elif felemDict[0] == '115':
+                                    if felemDict[1] == '1':
+                                        ambiguousReason.append('Conflicting exclusive')
+                                    elif felemDict[1] == '2':
+                                        ambiguousReason.append('Suppressed feature')
+                                    elif felemDict[1] == '3':
+                                        ambiguousReason.append('Absent Feature')
+                                elif felemDict[0] == '114':
+                                    cursor1 = g2Dbo.sqlExec('select FEAT_DESC from LIB_FEAT where LIB_FEAT_ID = ' + str(felemDict[1]))
+                                    rowData1 = g2Dbo.fetchNext(cursor1)
+                                    if rowData1:
+                                        ambiguousReason.append(rowData1['FEAT_DESC'])
+                            #--make the feature description the ambiguous reason 
+                            featDesc = colorize(' | '.join(ambiguousReason), self.colors['bad'])
+
+                featureDict = {}
+                featureDict['sortOrder'] = sortOrder
+                featureDict['matchScore'] = featureData['matchScore'] if 'matchScore' in featureData else 0
+                featureDict['entityCount'] = featureData['entityCount'] if 'entityCount' in featureData else 0
+                featureDict['featDesc'] = featDesc
+                featureArray[ftypeId][entityId].append(featureDict)
+
+        #--prepare the table
+        tblRows.append(dataSourceRow)
+        if len(crossRelationsRow) > 1:
+            tblRows.append(crossRelationsRow)
+        tblRows.append(matchKeyRow)
+
+        #--add the feature rows
+        for ftypeId in sorted(featureArray, key=lambda k: self.featureSequence[k]):
+            featureRow = [self.ftypeLookup[ftypeId]['FTYPE_CODE'] if ftypeId in self.ftypeLookup else 'unknown']
+            for entityId in sorted(entityData.keys()):
+                if entityId not in featureArray[ftypeId]:
+                    featureRow.append('')
+                else:
+                    featureList = []
+                    for featureDict in sorted(sorted(featureArray[ftypeId][entityId], key=lambda k: (k['featDesc'])), key=lambda k: (k['sortOrder'])):
+                        featureList.append(featureDict['featDesc'])
+                    featureRow.append('\n'.join(featureList))
+            tblRows.append(featureRow)
 
         #--display the table
         self.renderTable(tblTitle, tblColumns, tblRows)
@@ -2276,102 +2555,160 @@ class G2CmdShell(cmd.Cmd):
         return 0
 
     # -----------------------------
-    def do_score(self,arg): #--disabled 
-        '\n\tscore [{"name_last": "Smith", "name_first": "Joseph"}, {"name_last": "Smith", "name_first": "Joe"}]' 
-        #'\n\tscore entity1 entity2'
+    def colorizeWhyKey(self, whyKey):
 
-        if not argCheck('do_score', arg, self.do_score.__doc__):
+        if not whyKey['matchKey']:
+            whyStr = colorize('no candidate features', 'bg.red,fg.white')
+        else:
+            matchKeySegments = []
+            priorKey = ''
+            keyColor = self.colors['good']
+            for key in re.split('(\+|\-)', whyKey['matchKey']):
+                if key in ('+',''): 
+                    priorKey = '+'
+                    keyColor = self.colors['good']
+                elif key == '-':
+                    priorKey = '-'
+                    keyColor = self.colors['bad']
+                else:
+                    matchKeySegments.append(colorize(priorKey+key, keyColor))
+            whyStr = ''.join(matchKeySegments)
+
+        if 'ruleCode' in whyKey:
+            whyStr += (' (%s)' % whyKey['ruleCode'])
+
+        if 'entityId' in whyKey:
+            whyStr += ' to %s' % whyKey['entityId']
+
+        return whyStr
+
+    # -----------------------------
+    def do_try(self, arg): 
+        '\nSyntax:' \
+        '\n\ttry [{"name_last": "Smith", "name_first": "Joseph"}, {"name_last": "Smith", "name_first": "Joe"}]' \
+        '\n\ttry [{"data_source": "<dataSource>", "record_id": "<recordID>"}, {"data_source": "<dataSource>", "record_id": "<recordID>"}]' \
+        '\n\nRequired config: use G2ConfigTool.py to add these configurations one time' \
+        '\n\taddEntityClass {"entityClass": "TRY_ECLASS"}' \
+        '\n\taddEntityType {"entityType":"TRY_ETYPE", "class": "TRY_ECLASS"}' \
+        '\n\taddDataSource {"dataSource": "TRY_DSRC"}' \
+        '\n\tsave  <-- don''t forget to save!' \
+        '\n\nNote:' \
+        '\n\tif you see TRUSTED_ID in the score results, it means the records would not resolve on their own.\n' 
+
+        if not argCheck('do_try', arg, self.do_try.__doc__):
             return
 
         #--see if they gave us json
         try: 
             jsonData = json.loads(arg)
-            addRecordJson = jsonData[0]
-            searchRecordJson = jsonData[1]
+            record1json = dictKeysUpper(jsonData[0])
+            record2json = dictKeysUpper(jsonData[1])
         except:
             print('json parameters are invalid, see example in help')
             return
 
-        #--try to parse the string they gave us 
-        if not jsonData:
-            if ',' in arg:
-                searchItems = [x.strip() for x in arg.split(',')]
-            elif ' ' in arg:
-                searchItems = [x.strip() for x in arg.split(' ')]
+        #--get the first record json from the database
+        if "DATA_SOURCE" in record1json and "RECORD_ID" in record1json and len(record1json.keys()) == 2: 
+            try:
+                response = bytearray()
+                retcode = g2Engine.getRecord(record1json['DATA_SOURCE'], record1json['RECORD_ID'], response)
+                response = response.decode() if response else ''
+            except G2Exception as err:
+                printWithNewLines(str(err), 'B')
+                return
             else:
-                searchItems = []
+                if len(response) == 0:
+                    printWithNewLines('0 records found for %s' % entityId, 'B')
+                    return
+            jsonData = json.loads(response)
+            record1json = dictKeysUpper(jsonData['JSON_DATA'])
+        #--use the temp data source and entity type
+        record1json['DATA_SOURCE'] = 'TRY_DSRC'
+        record1json['ENTITY_TYPE'] = 'TRY_ETYPE'
+        record1json['RECORD_ID'] = 'TRY_RECORD_1' #--if 'RECORD_ID' not in record1json else record1json['RECORD_ID']
 
-            if len(searchItems) != 2:
-                print('string parameters are invalid, see example in help')
-                return 
+        #--get second record json from the database
+        if "DATA_SOURCE" in record2json and "RECORD_ID" in record2json and len(record2json.keys()) == 2: 
+            try:
+                response = bytearray()
+                retcode = g2Engine.getRecord(record2json['DATA_SOURCE'], record2json['RECORD_ID'], response)
+                response = response.decode() if response else ''
+            except G2Exception as err:
+                printWithNewLines(str(err), 'B')
+                return
+            else:
+                if len(response) == 0:
+                    printWithNewLines('0 records found for %s' % entityId, 'B')
+                    return
+            jsonData = json.loads(response)
+            record2json = dictKeysUpper(jsonData['JSON_DATA'])
+        #--use the temp data source and entity type
+        record2json['DATA_SOURCE'] = 'TRY_DSRC'
+        record2json['ENTITY_TYPE'] = 'TRY_ETYPE'
+        record2json['RECORD_ID'] = 'TRY_RECORD_2' #-- if 'RECORD_ID' not in record2json else record2json['RECORD_ID']
 
-            searchItems[0] = searchItems[0].strip('"')
-            searchItems[1] = searchItems[1].strip('"')
+        while True:
 
-            if searchItems[0].isnumeric():
-                addRecordJson = {}
-                searchRecordJson = {}
-                print('score by entity not yet available')
+            #--add the two records
+            try: 
+                retcode = g2Engine.addRecord(record1json['DATA_SOURCE'], record1json['RECORD_ID'], json.dumps(record1json))
+                retcode = g2Engine.addRecord(record2json['DATA_SOURCE'], record2json['RECORD_ID'], json.dumps(record2json))
+            except G2Exception as err:
+                print(str(err))
                 return
 
-            else:
-                addRecordJson = {"NAME_FULL": names[0]}
-                searchRecordJson = {"NAME_FULL": names[1]}
-
-        #--add the other_id candidate builder
-        dataSourceCode = 'TEST'
-        recordID = 'scoreNameRecordID'
-        otherID = '__nameTestID__'
-        addRecordJson['OTHER_ID_NUMBER'] = otherID
-        addRecordStr = json.dumps(addRecordJson).upper()
-        searchRecordJson['OTHER_ID_NUMBER'] = otherID
-        searchRecordStr = json.dumps(searchRecordJson).upper()
-
-        #--add the first record
-        try: 
-            retcode = g2Engine.addRecord(dataSourceCode, recordID, addRecordStr)
-        except G2Exception as err:
-            print(str(err))
-            return
-
-        #--search it up and display the scores
-        try: 
-            if oldG2Module:
-                response = g2Engine.searchByAttributes(searchRecordStr)
-            else:
+            #--get the first entity_id
+            try:
                 response = bytearray()
-                retcode = g2Engine.searchByAttributes(searchRecordStr, response)
+                retcode = g2Engine.getEntityByRecordID(record1json['DATA_SOURCE'], record1json['RECORD_ID'], response)
                 response = response.decode() if response else ''
-        except G2Exception as err:
-            print(str(err))
-            return
-        else:
-            isTheOne = False
-            jsonResponse = json.loads(response)
-            for resolvedEntity in jsonResponse['SEARCH_RESPONSE']['RESOLVED_ENTITIES']:
-                for record in resolvedEntity['RECORDS']:
-                    if record['DATA_SOURCE'] == dataSourceCode and record['RECORD_ID'] == recordID:
-                        isTheOne = True
+            except G2Exception as err:
+                print(str(err))
+                return
+            else:
+                if len(response) == 0:
+                    print('0 records found for %s %s' % (record1json['DATA_SOURCE'], record1json['RECORD_ID']))
+                    return
+            entity1id = json.loads(response)['RESOLVED_ENTITY']['ENTITY_ID']
+
+            #--get the second entity_id
+            try:
+                response = bytearray()
+                retcode = g2Engine.getEntityByRecordID(record2json['DATA_SOURCE'], record2json['RECORD_ID'], response)
+                response = response.decode() if response else ''
+            except G2Exception as err:
+                print(str(err))
+                return
+            else:
+                if len(response) == 0:
+                    print('0 records found for %s %s' % (record2json['DATA_SOURCE'], record2json['RECORD_ID']))
+                    return
+            entity2id = json.loads(response)['RESOLVED_ENTITY']['ENTITY_ID']
+
+            #--do a why on the temporary entities
+            if entity2id == entity1id:
+                self.do_why([entity1id])
+                break
+            else:
+                if False: #--try for why not
+                    self.do_why([entity1id, entity2id])
+                else: #--must resolve to continue
+                    if 'TRUSTED_ID_NUMBER' in record1json:
+                        print('records did not resolve!')
                         break
-                if isTheOne:
-                    for featureCode in resolvedEntity['MATCH_SCORES']:
-                        if featureCode=='OTHER_ID':
-                            continue
-                        for scoreRecord in resolvedEntity['MATCH_SCORES'][featureCode]:
-                            scoreRecord['FEATURE_CODE'] = featureCode
-                            print(json.dumps(scoreRecord, indent =4))
-                            displayed = True
-                    break
+                    else:  
+                        record1json['TRUSTED_ID_NUMBER'] = 'FORCE_RESOLVE'
+                        record2json['TRUSTED_ID_NUMBER'] = 'FORCE_RESOLVE'
 
-            if not isTheOne:
-                print('Something went wrong, contact Ant!')
-
-        #--delete the temporary record
+        #--delete the two temporary records 
         try: 
-            response = g2Engine.deleteRecord(dataSourceCode, recordID)
+            retcode = g2Engine.deleteRecord(record1json['DATA_SOURCE'], record1json['RECORD_ID'])
+            retcode = g2Engine.deleteRecord(record2json['DATA_SOURCE'], record2json['RECORD_ID'])
         except G2Exception as err:
             print(str(err))
             return
+
+        return
 
     # -----------------------------
     def renderTable(self, tblTitle, tblColumns, tblRows, pageRecords = 0):
@@ -2582,6 +2919,15 @@ class G2CmdShell(cmd.Cmd):
 # ===== utility functions =====
 
 
+#----------------------------------------
+def pause(question='PRESS ENTER TO CONTINUE ...'):
+    """ pause for debug purposes """
+    try: input(question)
+    except KeyboardInterrupt:
+        global shutDown
+        shutDown = True
+    except: pass
+
 def argCheck(func, arg, docstring):
 
     if len(arg.strip()) == 0:
@@ -2672,6 +3018,7 @@ def fuzzyCompare(ftypeCode, cfuncCode, str1, str2):
             closeEnough = str1 == str2
     return closeEnough
 
+
 # ===== The main function =====
 if __name__ == '__main__':
     appPath = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -2683,9 +3030,11 @@ if __name__ == '__main__':
     argParser = argparse.ArgumentParser()
     argParser.add_argument('-c', '--ini_file_name', dest='ini_file_name', default=iniFileName, help='name of the g2.ini file, defaults to %s' % iniFileName)
     argParser.add_argument('-s', '--snapshot_file_name', dest='snapshot_file_name', default=None, help='the name of a json statistics file computed by poc_snapshot.py')
+    argParser.add_argument('-D', '--debug', dest='debug', action='store_true', default=False, help='print debug statements')
     args = argParser.parse_args()
     iniFileName = args.ini_file_name
     snapShotFileName = args.snapshot_file_name
+    debugOn = args.debug
 
     #--validate snapshot file if specified
     if snapShotFileName and not os.path.exists(snapShotFileName):
@@ -2707,7 +3056,17 @@ if __name__ == '__main__':
         print('')
         print('CONNECTION parameter not found in [SQL] section of the ini file')
         print('')
-        sys.exit(1)
+        #sys.exit(1)
+
+    #--try to open the database
+    g2Dbo = G2Database(g2dbUri)
+    if not g2Dbo.success:
+        print('')
+        print('Could not connect to database')
+        print('')
+        g2Dbo = False
+        #sys.exit(1)
+
 
     #--use config file if in the ini file, otherwise expect to get from database with config manager lib
     try: configTableFile = iniParser.get('SQL', 'G2CONFIGFILE')
@@ -2761,27 +3120,18 @@ if __name__ == '__main__':
             #--error already printed by the api wrapper
             sys.exit(1)
 
-    #--try to open the database
-    g2Dbo = G2Database(g2dbUri)
-    if not g2Dbo.success:
-        print('')
-        print('Could not connect to database')
-        print('')
-        sys.exit(1)
-
-    #--try initialize and prime the g2engine
+    #--try to initialize the g2engine
+    print('')
+    print('initializing senzing engine ...')
     try:
-        if oldG2Module: 
-            g2Engine = G2Module('poc_viewer', iniFileName, False)
-            g2Engine.init()
+        g2Engine = G2Engine()
+        if configTableFile:
+            g2Engine.init('poc_viewer', iniFileName, False)
         else:
-            g2Engine = G2Engine()
-            if configTableFile:
-                g2Engine.init('poc_viewer', iniFileName, False)
-            else:
-                iniParamCreator = G2IniParams()
-                iniParams = iniParamCreator.getJsonINIParams(iniFileName)
-                g2Engine.initV2('poc_viewer', iniParams, False)
+            iniParamCreator = G2IniParams()
+            iniParams = iniParamCreator.getJsonINIParams(iniFileName)
+            g2Engine.initV2('poc_viewer', iniParams, False)
+            g2Engine.primeEngine()
     except G2Exception as err:
         print('')
         print('Could not initialize the G2 Engine')

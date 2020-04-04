@@ -35,8 +35,12 @@ else: hasFuzzy = True
 try: 
     from G2Database import G2Database
     from G2Exception import G2Exception
-    from G2Engine import G2Engine
-    oldG2Module = False
+    try: 
+        from G2Module import G2Module
+        oldG2Module = True
+    except: 
+        from G2Engine import G2Engine
+        oldG2Module = False
 except:
     print('')
     print('Please export PYTHONPATH=<path to senzing python directory>')
@@ -229,6 +233,9 @@ class G2CmdShell(cmd.Cmd):
         self.erruleLookup = {}
         for cfgRecord in self.cfgData['G2_CONFIG']['CFG_ERRULE']:
             self.erruleLookup[cfgRecord['ERRULE_ID']] = cfgRecord 
+        self.erruleCodeLookup = {}
+        for cfgRecord in self.cfgData['G2_CONFIG']['CFG_ERRULE']:
+            self.erruleCodeLookup[cfgRecord['ERRULE_CODE']] = cfgRecord 
         self.ftypeLookup = {}
         for cfgRecord in self.cfgData['G2_CONFIG']['CFG_FTYPE']:
             self.ftypeLookup[cfgRecord['FTYPE_ID']] = cfgRecord 
@@ -306,16 +313,20 @@ class G2CmdShell(cmd.Cmd):
             self.settingsFileData['colorScheme'] = 'dark'
         self.do_colorScheme(self.settingsFileData['colorScheme'])
 
-        #--get last pocSnapshot data unless specified on command line
+        #--default last snapshot/audit file from parameters
         if args.snapshot_file_name:
             self.settingsFileData['pocSnapshotFile'] = args.snapshot_file_name
+        if args.audit_file_name:
+            self.settingsFileData['pocAuditFile'] = args.audit_file_name
+
+        #--load prior snapshot file
         if 'pocSnapshotFile' in self.settingsFileData and os.path.exists(self.settingsFileData['pocSnapshotFile']):
             self.do_load(self.settingsFileData['pocSnapshotFile'])
         else:
             self.pocSnapshotFile = None
             self.pocSnapshotData = {}
 
-        #--get last pocSnapshot data
+        #--load prior audit file
         if 'pocAuditFile' in self.settingsFileData and os.path.exists(self.settingsFileData['pocAuditFile']):
             self.do_load(self.settingsFileData['pocAuditFile'])
         else:
@@ -1537,7 +1548,7 @@ class G2CmdShell(cmd.Cmd):
                     self.lastSearchResult = []
                     for i in range(len(matchList)):
                         matchList[i][0] = str(i+1)
-                        self.lastSearchResult.append(matchList[i][1])
+                        self.lastSearchResult.append(int(matchList[i][1]))
                     self.renderTable(tblTitle, tblColumns, matchList, 10)
 
 
@@ -1578,7 +1589,7 @@ class G2CmdShell(cmd.Cmd):
                 printWithNewLines('Select a valid index from the prior search results to use this feature', 'B')
                 return -1 if calledDirect else 0
             else:
-                arg = self.lastSearchResult[int(lastToken)-1]
+                arg = str(self.lastSearchResult[int(lastToken)-1])
 
         if len(arg.split()) == 1:
             try: 
@@ -1699,18 +1710,19 @@ class G2CmdShell(cmd.Cmd):
         tblColumns.append({'name': 'Entity Data', 'width': 75, 'align': 'left'})
         tblColumns.append({'name': 'Additional Data', 'width': 75, 'align': 'left'})
 
-        jsonData1 = {}
-        jsonData2 = []
+        #jsonData1 = {}
+        #jsonData2 = []
 
         recordList = []
-        for record in resolvedJson['RESOLVED_ENTITY']['RECORDS']:
-            if not jsonData1:
-                jsonData1 = record['JSON_DATA']
-            else:
-                jsonData2.append({'DATA_SOURCE': record['DATA_SOURCE'], 'RECORD_ID': record['RECORD_ID']})
-
+        for record in sorted(resolvedJson['RESOLVED_ENTITY']['RECORDS'], key = lambda k: (k['DATA_SOURCE'], k['RECORD_ID'])):
+            #print(json.dumps(record, indent=4))
+            #if not jsonData1:
+            #    jsonData1 = record['JSON_DATA']
+            #else:
+            #    jsonData2.append({'DATA_SOURCE': record['DATA_SOURCE'], 'RECORD_ID': record['RECORD_ID']})
+            erruleDesc = self.getRuleDesc(record['ERRULE_CODE'])
             row = []
-            row.append(record['DATA_SOURCE'] + '\n' + record['RECORD_ID'] + ('\n (' + record['MATCH_KEY'][1:] + ')' if record['MATCH_KEY'] else ''))
+            row.append(record['DATA_SOURCE'] + ': ' + record['RECORD_ID'] + ('\n ' + record['MATCH_KEY'][1:] if record['MATCH_KEY'] else '') + ('\n ' + erruleDesc if erruleDesc else ''))
             row.append('\n'.join(record['NAME_DATA'] + record['ATTRIBUTE_DATA'] + record['IDENTIFIER_DATA'] + ['ADDRESS: ' + x for x in record['ADDRESS_DATA']] + ['PHONE: '+ x for x in record['PHONE_DATA']]))
             row.append('\n'.join(record['OTHER_DATA']))
             recordList.append(row)
@@ -1764,7 +1776,7 @@ class G2CmdShell(cmd.Cmd):
                 row.append('|'.join(sorted(relationship['DATA_SOURCES'])))
                 row.append(self.relatedMatchLevels[relationship['MATCH_LEVEL']])
                 row.append(relationship['MATCH_KEY'])
-                row.append(relationship['ERRULE_CODE'])
+                row.append(self.getRuleDesc(relationship['ERRULE_CODE']))
                 relatedRecordList.append(row)
                 
             self.renderTable(tblTitle, tblColumns, relatedRecordList)
@@ -1794,7 +1806,7 @@ class G2CmdShell(cmd.Cmd):
         '\n\tcompare search ' \
         '\n\tcompare search <top (n)>'
         if not argCheck('do_compare', arg, self.do_compare.__doc__):
-            return -1
+            return
 
         showDetail = False #--old flag, replaced by why service which shows interal features
 
@@ -2024,7 +2036,7 @@ class G2CmdShell(cmd.Cmd):
         '\n\t[!] indicates that this value was not not even scored as way too many entities share it' \
         '\n\t[#] indicates that this value was supressed in favor of a more complete value\n'
         if type(arg) != list and not argCheck('do_why', arg, self.do_why.__doc__):
-            return -1
+            return 
 
         #--no return code if called direct
         calledFrom = sys._getframe().f_back.f_code.co_name
@@ -2081,7 +2093,6 @@ class G2CmdShell(cmd.Cmd):
             if len(jsonData['ENTITIES']) == 0:
                 printWithNewLines('0 records found for %s' % entityId, 'B')
                 return -1 if calledDirect else 0
-
 
             #--debug 
             if debugOn:
@@ -2150,7 +2161,7 @@ class G2CmdShell(cmd.Cmd):
                 whyRecord = whyRecords[0] if whyRecords else {}
                 entityData[entityId]['whyKey'] = {} 
                 entityData[entityId]['whyKey']['matchKey'] = whyRecord['MATCH_INFO']['WHY_KEY']
-                entityData[entityId]['whyKey']['ruleCode'] = whyRecord['MATCH_INFO']['WHY_ERRULE_CODE']
+                entityData[entityId]['whyKey']['ruleCode'] = self.getRuleDesc(whyRecord['MATCH_INFO']['WHY_ERRULE_CODE'])
 
                 #--update from candidate section of why
                 for ftypeCode in whyRecord['MATCH_INFO']['CANDIDATE_KEYS']:
@@ -2249,7 +2260,7 @@ class G2CmdShell(cmd.Cmd):
                         #searchJson = jsonMerge(searchJson, record['JSON_DATA'])
                         rootAttributes = {}
                         for rootAttribute in record['JSON_DATA']:
-                            if type(rootAttribute) != list:
+                            if type(record['JSON_DATA'][rootAttribute]) != list:
                                 rootAttributes[rootAttribute] = record['JSON_DATA'][rootAttribute]
                             else:
                                 if rootAttribute not in searchJson:
@@ -2289,6 +2300,7 @@ class G2CmdShell(cmd.Cmd):
                 except G2Exception as err:
                     print(str(err))
                     return
+
                 entityData[entityId]['crossRelations'] = []
                 jsonResponse = json.loads(response)
                 for relatedEntity in jsonResponse['RELATED_ENTITIES']:
@@ -2296,7 +2308,7 @@ class G2CmdShell(cmd.Cmd):
                         relationship = {}
                         relationship['entityId'] = relatedEntity['ENTITY_ID']
                         relationship['matchKey'] = relatedEntity['MATCH_KEY']
-                        relationship['ruleCode'] = relatedEntity['ERRULE_CODE']
+                        relationship['ruleCode'] = self.getRuleDesc(relatedEntity['ERRULE_CODE'])
                         entityData[entityId]['crossRelations'].append(relationship)
 
                 #--search for this entity to get the scores against the others
@@ -2305,8 +2317,10 @@ class G2CmdShell(cmd.Cmd):
                     retcode = g2Engine.searchByAttributes(json.dumps(searchJson), response)
                     response = response.decode() if response else ''
                 except G2Exception as err:
+                    print(json.dumps(searchJson, indent=4))
                     print(str(err))
                     return
+
                 entityData[entityId]['whyKey'] = []
                 jsonResponse = json.loads(response)
 
@@ -2314,10 +2328,11 @@ class G2CmdShell(cmd.Cmd):
                     print(json.dumps(jsonResponse, indent=4))
 
                 for resolvedEntity in jsonResponse['SEARCH_RESPONSE']['RESOLVED_ENTITIES']:
+
                     if resolvedEntity['ENTITY_ID'] in entityList and resolvedEntity['ENTITY_ID'] != entityId:
                         whyKey = {}
                         whyKey['matchKey'] = resolvedEntity['MATCH_KEY'] 
-                        whyKey['ruleCode'] = resolvedEntity['ERRULE_CODE']
+                        whyKey['ruleCode'] = self.getRuleDesc(resolvedEntity['ERRULE_CODE'])
                         whyKey['entityId'] = resolvedEntity['ENTITY_ID']
                         entityData[entityId]['whyKey'].append(whyKey)
                         for featureCode in resolvedEntity['MATCH_SCORES']:
@@ -2383,7 +2398,7 @@ class G2CmdShell(cmd.Cmd):
                             break
 
         #--create a row for the data sources
-        #print('=' * 50)
+        print('=' * 50)
         #print(json.dumps(entityData, indent=4))
 
         dataSourceRow = ['DATA SOURCES']
@@ -2403,14 +2418,14 @@ class G2CmdShell(cmd.Cmd):
                 relationList = []
                 for relationship in [x for x in sorted(entityData[entityId]['crossRelations'], key=lambda k: k['entityId'])]:
                     if len(entityList) <= 2: #--supress to entity if only 2
-                        relationList.append('%s (%s)' % (relationship['matchKey'], relationship['ruleCode']))
+                        relationList.append('%s\n %s' % (relationship['matchKey'], relationship['ruleCode']))
                     else:
-                        relationList.append('%s (%s) to %s' % (relationship['matchKey'], relationship['ruleCode'], relationship['entityId']))
+                        relationList.append('%s\n %s\n to %s' % (relationship['matchKey'], relationship['ruleCode'], relationship['entityId']))
                 crossRelationsRow.append('\n'.join(relationList))
 
             #--add the matchKey
             if not entityData[entityId]['whyKey']:
-                matchKeyRow.append(colorize('no resolve or relate!', self.colors['bad']))
+                matchKeyRow.append(colorize('Not found!', self.colors['bad']))
             elif singleEntityAnalysis:
                 matchKeyRow.append(self.colorizeWhyKey(entityData[entityId]['whyKey']))
             else:
@@ -2554,7 +2569,7 @@ class G2CmdShell(cmd.Cmd):
     def colorizeWhyKey(self, whyKey):
 
         if not whyKey['matchKey']:
-            whyStr = colorize('no candidate features', 'bg.red,fg.white')
+            whyStr = colorize('not found!', 'bg.red,fg.white')
         else:
             matchKeySegments = []
             priorKey = ''
@@ -2571,10 +2586,10 @@ class G2CmdShell(cmd.Cmd):
             whyStr = ''.join(matchKeySegments)
 
         if 'ruleCode' in whyKey:
-            whyStr += (' (%s)' % whyKey['ruleCode'])
+            whyStr += ('\n %s' % whyKey['ruleCode'])
 
         if 'entityId' in whyKey:
-            whyStr += ' to %s' % whyKey['entityId']
+            whyStr += ('\n to %s' % whyKey['entityId'])
 
         return whyStr
 
@@ -2861,6 +2876,10 @@ class G2CmdShell(cmd.Cmd):
         print('')
 
     # -----------------------------
+    def getRuleDesc(self, erruleCode):
+        return ('RULE ' + str(self.erruleCodeLookup[erruleCode]['ERRULE_ID']) + ': ' + erruleCode  if erruleCode in self.erruleCodeLookup else '')
+
+    # -----------------------------
     def getRecordList(self, table, field = None, value = None):
 
         recordList = []
@@ -3026,16 +3045,25 @@ if __name__ == '__main__':
     argParser = argparse.ArgumentParser()
     argParser.add_argument('-c', '--ini_file_name', dest='ini_file_name', default=iniFileName, help='name of the g2.ini file, defaults to %s' % iniFileName)
     argParser.add_argument('-s', '--snapshot_file_name', dest='snapshot_file_name', default=None, help='the name of a json statistics file computed by poc_snapshot.py')
+    argParser.add_argument('-a', '--audit_file_name', dest='audit_file_name', default=None, help='the name of a json statistics file computed by poc_audit.py')
     argParser.add_argument('-D', '--debug', dest='debug', action='store_true', default=False, help='print debug statements')
     args = argParser.parse_args()
     iniFileName = args.ini_file_name
-    snapShotFileName = args.snapshot_file_name
+    snapshotFileName = args.snapshot_file_name
+    auditFileName = args.audit_file_name
     debugOn = args.debug
 
     #--validate snapshot file if specified
-    if snapShotFileName and not os.path.exists(snapShotFileName):
+    if snapshotFileName and not os.path.exists(snapshotFileName):
         print('')
-        print('Snapshot file %s not found!' % snapShotFileName)
+        print('Snapshot file %s not found!' % snapshotFileName)
+        print('')
+        sys.exit(1)
+
+    #--validate audit file if specified
+    if auditFileName and not os.path.exists(auditFileName):
+        print('')
+        print('Audit file %s not found!' % auditFileName)
         print('')
         sys.exit(1)
 

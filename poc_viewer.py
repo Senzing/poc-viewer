@@ -2160,7 +2160,12 @@ class G2CmdShell(cmd.Cmd):
                 whyRecords = [x for x in jsonData['WHY_RESULTS'] if x['INTERNAL_ID'] == entityId]
                 whyRecord = whyRecords[0] if whyRecords else {}
                 entityData[entityId]['whyKey'] = {} 
-                entityData[entityId]['whyKey']['matchKey'] = whyRecord['MATCH_INFO']['WHY_KEY']
+                if 'MATCH_INFO' not in whyRecord:
+                    entityData[entityId]['whyKey']['matchKey'] = 'match info missing!' 
+                    entityData[entityId]['whyKey']['ruleCode'] = ''
+                    continue
+                    
+                entityData[entityId]['whyKey']['matchKey'] = whyRecord['MATCH_INFO']['WHY_KEY'] 
                 entityData[entityId]['whyKey']['ruleCode'] = self.getRuleDesc(whyRecord['MATCH_INFO']['WHY_ERRULE_CODE'])
 
                 #--update from candidate section of why

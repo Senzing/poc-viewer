@@ -3046,13 +3046,13 @@ if __name__ == '__main__':
     appPath = os.path.dirname(os.path.abspath(sys.argv[0]))
 
     #--defaults
-    iniFileName = os.getenv('SENZING_INI_FILE_NAME') if os.getenv('SENZING_INI_FILE_NAME', None) else appPath + os.path.sep + 'G2Module.ini'
+    iniFileName = os.getenv('SENZING_CONFIG_FILE') if os.getenv('SENZING_CONFIG_FILE', None) else appPath + os.path.sep + 'G2Module.ini'
 
     #--capture the command line arguments
     argParser = argparse.ArgumentParser()
-    argParser.add_argument('-c', '--ini_file_name', dest='ini_file_name', default=iniFileName, help='name of the g2.ini file, defaults to %s' % iniFileName)
-    argParser.add_argument('-s', '--snapshot_file_name', dest='snapshot_file_name', default=None, help='the name of a json statistics file computed by poc_snapshot.py')
-    argParser.add_argument('-a', '--audit_file_name', dest='audit_file_name', default=None, help='the name of a json statistics file computed by poc_audit.py')
+    argParser.add_argument('-c', '--config_file_name', dest='ini_file_name', default=iniFileName, help='name of the g2.ini file, defaults to %s' % iniFileName)
+    argParser.add_argument('-s', '--snapshot_json_file', dest='snapshot_file_name', default=None, help='the name of a json statistics file computed by poc_snapshot.py')
+    argParser.add_argument('-a', '--audit_json_file', dest='audit_file_name', default=None, help='the name of a json statistics file computed by poc_audit.py')
     argParser.add_argument('-D', '--debug', dest='debug', action='store_true', default=False, help='print debug statements')
     args = argParser.parse_args()
     iniFileName = args.ini_file_name
